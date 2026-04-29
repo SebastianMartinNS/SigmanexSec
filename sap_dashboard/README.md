@@ -43,12 +43,30 @@ and binding the dashboard to localhost.
 
 ## Authentication model
 
-* HTTP Basic for v1 (set `dashboard.auth` in `config.yaml` or via env vars).
-* WebSocket auth: client opens `wss://…/api/runs/{id}/events/ws` and sends
-  `{ "type": "auth", "token": "<base64 user:pass>" }` as the first frame.
-* Failed `/api/sudo/unlock` attempts are rate-limited per process (5 / 60 s).
-* When `dashboard.auth` is unset, every API call returns **503** to prevent
-  accidentally exposing the platform.
+* Cookie-based session (P0 hardening): operators authenticate via
+  `POST /api/auth/login` (form fields `username` / `password`) and
+  receive an `itsdangerous`-signed `sap_session` cookie marked
+  `HttpOnly`, `Secure`, `SameSite=Strict`. Every state-changing
+  request must additionally carry a double-submit `X-CSRF-Token`
+  header that is validated against the `sap_csrf` cookie.
+* HTTP Basic is still accepted as a fallback for the CLI / scripting
+  use case (`SAP_DASHBOARD_USER` / `SAP_DASHBOARD_PASS` or the
+  `SAP_DASHBOARD_USERS` JSON directory).
+* WebSocket auth varies by endpoint:
+  * `/api/runs/{id}/events/ws` (agent event stream) authenticates
+    using the `sap_session` cookie OR an HTTP Basic
+    `Authorization: Basic <base64 user:pass>` header set on the
+    upgrade request. Connections without either are closed with
+    code `1008 (policy violation)`. **No JSON auth frame is
+    expected on this endpoint.**
+  * `/api/audit/ws` (audit tail) accepts an explicit JSON handshake
+    as the first frame: `{ "type": "auth", "token": "<base64 user:pass>" }`.
+* Failed `/api/auth/login` and `/api/sudo/unlock` attempts are rate
+  limited per process. Sudo unlock: 2 attempts per 60 s; after
+  5 cumulative failures the unlock endpoint is locked for 900 s.
+* When neither `SAP_DASHBOARD_USER`/`PASS` nor `SAP_DASHBOARD_USERS`
+  are set, every API call returns **503** to prevent accidentally
+  exposing the platform.
 
 ## API surface
 
