@@ -63,21 +63,42 @@ before any reply is returned to the operator.
 
 ## Quick start
 
+For a step-by-step installation guide (system bootstrap, model download,
+llama.cpp build, credentials, first login, troubleshooting) see
+**[docs/INSTALL.md](docs/INSTALL.md)**. The condensed version:
+
 ```bash
-# 1. System bootstrap (NVIDIA GPU, kernel 6.17 — see `install_gpu.sh`)
+# 1. Clone with the llama.cpp submodule
+git clone --recursive https://github.com/SebastianMartinNS/SigmanexSec.git sap-pentest
+cd sap-pentest
+
+# 2. System bootstrap (NVIDIA GPU + kernel 6.17 + Parrot tools)
 bash install_gpu.sh
 
-# 2. Install Python deps
+# 3. Python dependencies
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 3. (Optional) Install missing Parrot tools via pipx / apt
-bash scripts/install_missing_tools.sh
+# 4. Apply the nine local llama.cpp patches and build llama-server
+bash scripts/apply_llamacpp_patches.sh
+# Then build (CUDA): see docs/INSTALL.md § 4 for the full cmake invocation.
 
-# 4. Start everything: LLM + 6 MCP servers + dashboard + sudo broker
+# 5. Download a Qwen3.5-class GGUF into llama.cpp/models/
+# Verify checksums against models.sha256 (see docs/INSTALL.md § 5).
+
+# 6. Configure credentials (REQUIRED — dashboard refuses to start otherwise)
+cp .env.example .env
+# Edit .env and set at minimum:
+#   SAP_DASHBOARD_USER, SAP_DASHBOARD_PASS, SAP_SESSION_SECRET
+# Generate a session secret with:
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+
+# 7. Start everything: LLM + 6 MCP servers + dashboard + sudo broker
 bash start_all.sh
 
-# 5. Open the dashboard
-xdg-open http://127.0.0.1:8765   # default user=admin pass=test
+# 8. Open the dashboard and log in with the SAP_DASHBOARD_USER / SAP_DASHBOARD_PASS
+#    you set in step 6.
+xdg-open http://127.0.0.1:8765
 ```
 
 Stop everything with `bash stop_all.sh`. Live status: `bash status_all.sh`.
@@ -209,14 +230,21 @@ The platform is built around a small number of choke points that every
 operation has to pass through. These are the controls Sigmanex relies
 on internally and that this open-source release exposes for review.
 
-**Authentication and session management.** The dashboard authenticates
-operators with Argon2id-hashed credentials (m=64 MiB, t=3, p=4) stored
-either in environment variables or in a JSON user directory. Sessions
-are carried in an `itsdangerous`-signed `sap_session` cookie marked
+**Authentication and session management.** The dashboard refuses to
+start unless `SAP_DASHBOARD_USER` and `SAP_DASHBOARD_PASS` (or the
+multi-user `SAP_DASHBOARD_USERS` JSON directory) are present in the
+environment; otherwise every API call returns HTTP 503. Credentials
+are compared with `secrets.compare_digest` (constant time) against the
+values kept in process memory — they are never written to disk by the
+platform itself, so it is on the operator to keep `.env` permissions
+tight (`chmod 600`) and outside of version control. After login, the
+browser receives an `itsdangerous`-signed `sap_session` cookie marked
 `HttpOnly`, `Secure`, `SameSite=Strict`, with a thirty-minute idle
-window and an eight-hour absolute lifetime. State-changing requests
-require a double-submit `X-CSRF-Token` header that is validated against
-a separate cookie.
+window and an eight-hour absolute lifetime, signed with
+`SAP_SESSION_SECRET`. State-changing requests require a double-submit
+`X-CSRF-Token` header that is validated against a separate cookie.
+Failed `/api/auth/login` and `/api/sudo/unlock` attempts are rate
+limited per process.
 
 **Role-based access control.** Three roles are defined in
 [`sap_dashboard/backend/rbac.py`](sap_dashboard/backend/rbac.py):
