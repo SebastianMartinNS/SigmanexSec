@@ -1,0 +1,86 @@
+# deploy/podman/Containerfile.dashboard — rootless Podman image (P4.2).
+#
+# Build:
+#     podman build -t sap-dashboard:latest -f deploy/podman/Containerfile.dashboard .
+#
+# Run:
+#     podman run --rm \
+#         --read-only --tmpfs /tmp \
+#         --cap-drop=ALL \
+#         --security-opt no-new-privileges \
+#         --security-opt seccomp=deploy/podman/seccomp-dashboard.json \
+#         --network slirp4netns:port_handler=slirp4netns,allow_host_loopback=true \
+#         -p 127.0.0.1:8765:8765 \
+#         -v sap-state:/var/lib/sap:Z \
+#         -v sap-secrets:/etc/sap:Z,ro \
+#         sap-dashboard:latest
+#
+# Multi-stage build keeps the runtime image lean (~150MB) and reproducible.
+
+# ───────── Stage 1: build dependencies ─────────
+FROM docker.io/python:3.13-slim AS build
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential gcc libffi-dev libssl-dev pkg-config && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements.lock* ./
+# Prefer the hash-pinned lockfile when present, fall back to the loose
+# requirements.txt only if the lock has not been generated yet.
+RUN if [ -f requirements.lock ]; then \
+        pip install --require-hashes -r requirements.lock; \
+    else \
+        pip install -r requirements.txt; \
+    fi
+
+# ───────── Stage 2: runtime ─────────
+FROM docker.io/python:3.13-slim AS runtime
+
+# Non-root user identical to the systemd installation.
+RUN groupadd --system --gid 990 sap && \
+    useradd --system --uid 990 --gid 990 \
+        --home-dir /var/lib/sap --shell /usr/sbin/nologin sap
+
+# Minimal runtime libs only.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates tini && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy installed Python packages from the builder.
+COPY --from=build /usr/local/lib/python3.13/site-packages \
+                  /usr/local/lib/python3.13/site-packages
+COPY --from=build /usr/local/bin /usr/local/bin
+
+# App code.
+WORKDIR /opt/sap
+COPY --chown=root:root . /opt/sap
+RUN find /opt/sap -type d -exec chmod 0755 {} + && \
+    find /opt/sap -type f -exec chmod 0644 {} + && \
+    chmod 0755 /opt/sap/cli.py && \
+    install -d -o sap -g sap -m 0700 /var/lib/sap /var/log/sap /run/sap
+
+USER sap:sap
+EXPOSE 8765
+
+# Read-only filesystem; state goes via tmpfs/volume mounts.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    SAP_STATE_DIR=/var/lib/sap \
+    XDG_STATE_HOME=/var/lib/sap \
+    XDG_CONFIG_HOME=/etc/sap \
+    SAP_DISABLE_STORAGE_GC=0 \
+    SAP_MLOCK_ALL=1
+
+# Healthcheck calls /api/health which requires no auth.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import urllib.request,sys; \
+                   urllib.request.urlopen('http://127.0.0.1:8765/api/health',timeout=3); \
+                   sys.exit(0)" || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "/opt/sap/cli.py", "dashboard", "--host", "127.0.0.1", "--port", "8765"]

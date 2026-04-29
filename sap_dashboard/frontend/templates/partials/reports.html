@@ -1,0 +1,59 @@
+{# Reports — list & download #}
+<section x-show="active === 'reports'" x-cloak
+         x-data="{
+           items: [],
+           loading: false,
+           async load() {
+             this.loading = true;
+             try {
+               const r = await fetch('/api/reports', { headers: this.$root.headers ? this.$root.headers() : {} });
+               if (r.ok) {
+                 const j = await r.json();
+                 this.items = Array.isArray(j) ? j : (j.reports || []);
+               }
+             } catch(_){}
+             this.loading = false;
+           }
+         }"
+         x-init="load()">
+  <div class="flex items-end justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Reports</h1>
+      <p class="text-sm text-slate-400 mt-1">Report generati in formato Markdown e PDF.</p>
+    </div>
+    <button class="snx-btn snx-btn--ghost" @click="load()">
+      <svg class="icon"><use href="/assets/brand/icons.svg#icon-refresh"/></svg> Aggiorna
+    </button>
+  </div>
+
+  <div class="snx-surface p-2">
+    <table class="snx-table">
+      <thead>
+        <tr><th>File</th><th>Engagement</th><th>Generato</th><th class="text-right">Azioni</th></tr>
+      </thead>
+      <tbody>
+        <template x-for="r in items" :key="r.path || r.name">
+          <tr>
+            <td class="snx-mono text-xs" x-text="r.name || r.path"></td>
+            <td x-text="(r.engagement_id||'').slice(0,8)"></td>
+            <td class="text-xs text-slate-500" x-text="r.created_at || r.mtime || ''"></td>
+            <td class="text-right">
+              <a class="snx-btn snx-btn--ghost" :href="r.url || ('/api/reports/' + (r.name||r.path))" target="_blank" rel="noopener">
+                <svg class="icon"><use href="/assets/brand/icons.svg#icon-download"/></svg> Scarica
+              </a>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="!items.length && !loading">
+          <td colspan="4" class="snx-empty">
+            <svg class="icon"><use href="/assets/brand/icons.svg#icon-file-text"/></svg>
+            <div>Nessun report disponibile.</div>
+          </td>
+        </tr>
+        <tr x-show="loading">
+          <td colspan="4"><div class="snx-skeleton" style="height:80px"></div></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>

@@ -1,0 +1,44 @@
+diff --git a/tools/server/webui/src/lib/stores/settings.svelte.ts b/tools/server/webui/src/lib/stores/settings.svelte.ts
+index 8ab817c..5179035 100644
+--- a/tools/server/webui/src/lib/stores/settings.svelte.ts
++++ b/tools/server/webui/src/lib/stores/settings.svelte.ts
+@@ -116,6 +116,39 @@ class SettingsStore {
+ 			const storedConfigRaw = localStorage.getItem(CONFIG_LOCALSTORAGE_KEY);
+ 			const savedVal = JSON.parse(storedConfigRaw || '{}');
+ 
++			// Migration: if mcpServers is still the legacy default ('[]') OR
++			// any entry uses the broken cors-proxy path (useProxy=true on local
++			// 127.0.0.1 servers), replace with the new defaults that hit the
++			// MCP servers directly with CORS. This prevents the chat from
++			// hanging in "processing" because Chrome's 6-connections-per-origin
++			// limit was being exhausted by long-lived SSE streams routed
++			// through llama-server's /cors-proxy.
++			const legacy = savedVal?.mcpServers;
++			let needsMigration = false;
++			if (typeof legacy === 'string') {
++				try {
++					const parsed = JSON.parse(legacy);
++					if (!Array.isArray(parsed) || parsed.length === 0) {
++						needsMigration = true;
++					} else if (
++						parsed.some(
++							(s: { url?: string; useProxy?: boolean }) =>
++								s.useProxy && typeof s.url === 'string' && /127\.0\.0\.1:900[1-6]/.test(s.url)
++						)
++					) {
++						needsMigration = true;
++					}
++				} catch {
++					needsMigration = true;
++				}
++			} else {
++				needsMigration = true;
++			}
++			if (needsMigration) {
++				savedVal.mcpServers = SETTING_CONFIG_DEFAULT.mcpServers;
++				console.log('[Settings] migrated mcpServers to bundled SAP defaults');
++			}
++
+ 			// Merge with defaults to prevent breaking changes
+ 			this.config = {
+ 				...SETTING_CONFIG_DEFAULT,

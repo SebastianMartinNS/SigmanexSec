@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a new capability or improvement
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to achieve? What is missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: impact
+    attributes:
+      label: Authorization / PII / audit impact
+      description: |
+        Does this change touch scope enforcement, the audit chain, the
+        sudo broker, or PII handling? If yes, describe the controls.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Pre-flight
+      options:
+        - label: This feature does NOT enable bypassing scope validation or audit logging.
+          required: true
+        - label: I have searched existing issues / discussions.
+          required: true

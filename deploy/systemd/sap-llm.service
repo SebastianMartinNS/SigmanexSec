@@ -1,0 +1,66 @@
+[Unit]
+Description=SAP — LLM inference server (llama.cpp, Qwen3.5-35B-A3B)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# ── Inherit common hardening (see sap-hardening.conf for full directives). ──
+User=sap
+Group=sap
+UMask=0077
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=no              # NVIDIA / DRI nodes needed for GPU offload
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+PrivateUsers=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# llama.cpp uses CUDA kernels which mmap with PROT_EXEC; MDWE must be off.
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @debug @cpu-emulation @obsolete @reboot @swap @mount
+
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=127.0.0.0/8
+
+LimitCORE=0
+LimitNOFILE=8192
+TasksMax=2048
+
+StateDirectory=sap
+StateDirectoryMode=0700
+RuntimeDirectory=sap
+RuntimeDirectoryMode=0700
+
+# Read-only access to model files; no other writable paths.
+ReadOnlyPaths=/opt/sap /usr/local/cuda
+ReadWritePaths=/var/lib/sap /run/sap /var/log/sap
+
+EnvironmentFile=-/etc/sap/secrets.env
+WorkingDirectory=/opt/sap
+ExecStart=/opt/sap/start_llm.sh
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

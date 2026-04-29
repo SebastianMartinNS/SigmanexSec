@@ -1,0 +1,133 @@
+{# Overview — landing post-login with KPI + recent activity #}
+<section x-show="active === 'overview'" x-cloak
+         x-data="{
+           kpi: { engagements: 0, runs: 0, findings24: 0, audit24: 0 },
+           lastEvents: [],
+           async load() {
+             try {
+               const r = await fetch('/api/engagements', { headers: this.$root.headers ? this.$root.headers() : {} });
+               if (r.ok) {
+                 const list = await r.json();
+                 this.kpi.engagements = list.length;
+                 this.kpi.runs = list.filter(e => e.status === 'active').length;
+               }
+             } catch(_){}
+             try {
+               const r2 = await fetch('/api/audit?limit=200');
+               if (r2.ok) {
+                 const arr = await r2.json();
+                 const since = Date.now()/1000 - 24*3600;
+                 this.kpi.audit24 = arr.filter(e => {
+                   const t = Date.parse(e.timestamp || '') / 1000;
+                   return !isNaN(t) && t >= since;
+                 }).length;
+                 this.kpi.findings24 = arr.filter(e =>
+                   /finding/i.test(e.action || '')).length;
+                 this.lastEvents = arr.slice(-12).reverse();
+               }
+             } catch(_){}
+           }
+         }"
+         x-init="load(); setInterval(load, 30000)">
+  <div class="flex items-end justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Centro operativo</h1>
+      <p class="text-sm text-slate-400 mt-1">Stato in tempo reale della piattaforma SigmanexSec.</p>
+    </div>
+    <button class="snx-btn snx-btn--ghost" @click="load()">
+      <svg class="icon"><use href="/assets/brand/icons.svg#icon-refresh"/></svg> Aggiorna
+    </button>
+  </div>
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="snx-kpi">
+      <div class="snx-kpi__label">Engagements</div>
+      <div class="snx-kpi__value" x-text="kpi.engagements"></div>
+      <div class="snx-kpi__hint">totale registrato</div>
+    </div>
+    <div class="snx-kpi">
+      <div class="snx-kpi__label">Run attive</div>
+      <div class="snx-kpi__value" x-text="kpi.runs"></div>
+      <div class="snx-kpi__hint">in esecuzione</div>
+    </div>
+    <div class="snx-kpi">
+      <div class="snx-kpi__label">Finding 24h</div>
+      <div class="snx-kpi__value" x-text="kpi.findings24"></div>
+      <div class="snx-kpi__hint">audit · ultime 24h</div>
+    </div>
+    <div class="snx-kpi">
+      <div class="snx-kpi__label">Eventi audit 24h</div>
+      <div class="snx-kpi__value" x-text="kpi.audit24"></div>
+      <div class="snx-kpi__hint">tutti i client</div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="snx-surface p-5 lg:col-span-2">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-semibold uppercase tracking-wider text-slate-300">Attività recente</div>
+        <button class="snx-btn snx-btn--ghost text-xs" @click="$root.active='audit'; $root.openAuditWs()">
+          Apri Audit Live <svg class="icon"><use href="/assets/brand/icons.svg#icon-arrow-right"/></svg>
+        </button>
+      </div>
+      <table class="snx-table">
+        <thead>
+          <tr><th>Time</th><th>Actor</th><th>Action</th><th>Engagement</th><th>Target</th></tr>
+        </thead>
+        <tbody>
+          <template x-for="e in lastEvents" :key="e.id || (e.timestamp + e.actor)">
+            <tr>
+              <td class="snx-mono text-xs text-slate-500" x-text="(e.timestamp||'').replace('T',' ').slice(0,19)"></td>
+              <td class="text-cyan-300" x-text="e.actor"></td>
+              <td><span class="snx-pill" :class="{
+                  'snx-pill--warn':  e.action==='tool_execute',
+                  'snx-pill--ok':    e.action==='tool_complete',
+                  'snx-pill--danger': /error|block/.test(e.action||''),
+                }" x-text="e.action"></span></td>
+              <td class="snx-mono text-xs text-slate-400" x-text="(e.engagement_id||'').slice(0,8)"></td>
+              <td class="text-slate-300 text-xs" x-text="e.target"></td>
+            </tr>
+          </template>
+          <tr x-show="!lastEvents.length">
+            <td colspan="5" class="snx-empty">
+              <svg class="icon"><use href="/assets/brand/icons.svg#icon-activity"/></svg>
+              <div>Nessuna attività recente.</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="snx-surface p-5">
+      <div class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-3">Stato sicurezza</div>
+      <ul class="text-sm space-y-3">
+        <li class="flex items-center gap-2">
+          <span class="snx-dot is-pulse" style="color:#10b981"></span>
+          Sessioni HttpOnly firmate
+        </li>
+        <li class="flex items-center gap-2">
+          <span class="snx-dot is-pulse" style="color:#10b981"></span>
+          CSRF double-submit attivo
+        </li>
+        <li class="flex items-center gap-2">
+          <span class="snx-dot is-pulse" style="color:#10b981"></span>
+          CSP nonce per richiesta
+        </li>
+        <li class="flex items-center gap-2">
+          <span class="snx-dot is-pulse" style="color:#10b981"></span>
+          Rate-limit login: 5/60s · lockout 900s
+        </li>
+        <li class="flex items-center gap-2">
+          <span class="snx-dot" :style="$root.sudo.locked ? 'color:#64748b' : 'color:#f59e0b'"></span>
+          Sudo Vault: <span x-text="$root.sudo.locked ? 'bloccato' : 'sbloccato'"></span>
+        </li>
+      </ul>
+      <div class="snx-divider my-4"></div>
+      <div class="text-xs text-slate-500">
+        Build <code class="snx-mono">{{ brand.version }}</code> ·
+        Policy <code class="snx-mono">strict-CSP</code> ·
+        Trusted Types: <em>report-only</em>
+      </div>
+    </div>
+  </div>
+</section>

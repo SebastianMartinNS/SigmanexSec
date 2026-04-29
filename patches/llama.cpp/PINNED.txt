@@ -1,0 +1,9 @@
+# Pinned upstream commit for the vendored `llama.cpp` submodule.
+# The nine SAP-Pentest patches under this directory were generated against
+# this exact base. Bump only after verifying that every patch in this
+# directory still applies cleanly with `bash scripts/apply_llamacpp_patches.sh`.
+
+UPSTREAM_REPO=https://github.com/ggerganov/llama.cpp
+PINNED_COMMIT=0beb8db3a0037b51f8247ac657b7655ab68fa9f0
+PINNED_DATE=2026-04-29
+PINNED_TITLE=ggml-vulkan: add SGN operator, auto-generate Vulkan.csv and ops.md (#20219)

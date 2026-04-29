@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ brand.name }} · Dashboard{% endblock %}
+
+{% block body %}
+<a class="snx-skip" href="#main">Vai al contenuto</a>
+
+<div class="snx-shell" x-data="app()" x-cloak>
+
+  {# ── SIDEBAR ─────────────────────────────────────────────────────────── #}
+  <aside class="snx-sidebar" aria-label="Navigazione principale">
+    <div class="snx-brand">
+      <img class="snx-brand__mark" src="/assets/brand/mark.svg" alt="" width="34" height="34" />
+      <div>
+        <div class="snx-brand__name">
+          <span class="snx-text-gradient">Sigmanex</span>Sec
+        </div>
+        <div class="snx-brand__tag">v{{ brand.version }}</div>
+      </div>
+    </div>
+
+    <div class="snx-nav__group">Operazioni</div>
+    <nav class="snx-nav" aria-label="Menu">
+      <button class="snx-nav__item" :class="active==='overview'    && 'is-active'" @click="active='overview'">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-grid"/></svg> Overview
+      </button>
+      <button class="snx-nav__item" :class="active==='engagements' && 'is-active'" @click="active='engagements'; loadEngagements()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-shield"/></svg> Engagements
+      </button>
+      <button class="snx-nav__item" :class="active==='agent'       && 'is-active'" @click="active='agent'">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-target"/></svg> Agent Console
+      </button>
+      <button class="snx-nav__item" :class="active==='audit'       && 'is-active'" @click="active='audit'; openAuditWs()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-activity"/></svg> Audit Live
+      </button>
+      <button class="snx-nav__item" :class="active==='sessions'    && 'is-active'" @click="active='sessions'; loadSessions()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-terminal"/></svg> Sessioni
+      </button>
+    </nav>
+
+    <div class="snx-nav__group">Strumenti</div>
+    <nav class="snx-nav" aria-label="Tools">
+      <button class="snx-nav__item" :class="active==='sudo'        && 'is-active'" @click="active='sudo'">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-lock"/></svg> Sudo Vault
+      </button>
+      <button class="snx-nav__item" :class="active==='parrot'      && 'is-active'" @click="active='parrot'; loadParrot()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-tools"/></svg> Parrot Tools
+      </button>
+      <button class="snx-nav__item" :class="active==='reports'     && 'is-active'" @click="active='reports'">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-file-text"/></svg> Reports
+      </button>
+      <button class="snx-nav__item" :class="active==='settings'    && 'is-active'" @click="active='settings'; loadSettings()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-settings"/></svg> Impostazioni
+      </button>
+    </nav>
+
+    <div class="snx-sidefoot">
+      <div class="flex items-center gap-2">
+        <span class="snx-dot is-pulse" :style="sudo.locked ? 'color:#64748b' : 'color:#10b981'"></span>
+        <span x-text="sudo.locked ? 'Sudo: bloccato' : 'Sudo: sbloccato'"></span>
+        <span class="text-slate-500" x-show="!sudo.locked" x-text="`(${Math.round(sudo.ttl_remaining_seconds)}s)`"></span>
+      </div>
+      <div>build {{ brand.version }} · loopback only</div>
+    </div>
+  </aside>
+
+  {# ── MAIN ────────────────────────────────────────────────────────────── #}
+  <div class="snx-main">
+
+    {# ── TOPBAR ─────────────────────────────────────────────────────── #}
+    <header class="snx-topbar" role="banner">
+      <div class="snx-crumbs">
+        <strong x-text="tabLabel(active)"></strong>
+      </div>
+      <div class="snx-topbar__spacer"></div>
+
+      <button class="snx-themetoggle" data-snx-action="toggle-theme" aria-label="Cambia tema">
+        <svg class="icon icon-sun" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-sun"/></svg>
+        <svg class="icon icon-moon" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-moon"/></svg>
+      </button>
+
+      <div class="snx-userchip" x-data="{open:false}" @click.outside="open=false">
+        <span class="snx-avatar" aria-hidden="true">{{ (user[:2] if user else '??')|upper }}</span>
+        <div class="text-xs leading-tight">
+          <div class="font-semibold">{{ user or '—' }}</div>
+          <div><span class="snx-role snx-role--{{ role or 'viewer' }}">{{ (role or 'viewer')|upper }}</span></div>
+        </div>
+        <button class="snx-btn snx-btn--icon snx-btn--ghost" @click="open=!open" aria-label="Menu utente">
+          <svg class="icon"><use href="/assets/brand/icons.svg#icon-chevron-right"/></svg>
+        </button>
+        <div x-show="open" x-cloak
+             class="absolute right-4 top-14 snx-glass p-2 z-40" style="min-width: 200px;">
+          <a class="snx-nav__item" href="/docs"><svg class="icon"><use href="/assets/brand/icons.svg#icon-info"/></svg> API docs</a>
+          <button class="snx-nav__item" @click="logout()">
+            <svg class="icon"><use href="/assets/brand/icons.svg#icon-log-out"/></svg> Esci
+          </button>
+        </div>
+      </div>
+    </header>
+
+    {# ── CONTENT ────────────────────────────────────────────────────── #}
+    <main id="main" class="snx-content" role="main">
+
+      {% include "partials/overview.html" %}
+      {% include "partials/engagements.html" %}
+      {% include "partials/console.html" %}
+      {% include "partials/audit.html" %}
+      {% include "partials/sessions.html" %}
+      {% include "partials/vault.html" %}
+      {% include "partials/tools.html" %}
+      {% include "partials/reports.html" %}
+      {% include "partials/settings.html" %}
+
+    </main>
+
+    {# ── STATUSBAR ──────────────────────────────────────────────────── #}
+    <footer class="snx-statusbar" role="contentinfo">
+      <span class="item">
+        <span class="snx-dot" :style="audit.ws ? 'color:#10b981' : 'color:#64748b'"></span>
+        <span x-text="audit.ws ? 'Audit live · connesso' : 'Audit live · idle'"></span>
+      </span>
+      <span class="item" x-show="currentRun" x-cloak>
+        <span class="snx-dot is-pulse" style="color:#7dd3fc"></span>
+        run <code class="snx-mono" x-text="currentRun"></code> · <span x-text="runStatus.state || ''"></span>
+      </span>
+      <span class="item" x-show="selectedEngagement" x-cloak>
+        eng <code class="snx-mono" x-text="(selectedEngagement||'').slice(0,8)"></code>
+      </span>
+      <span class="item" style="margin-left:auto;">SigmanexSec · v{{ brand.version }}</span>
+    </footer>
+  </div>
+</div>
+
+{% block scripts %}
+{{ super() }}
+<script src="/vendor/app.js"
+        integrity="sha256-5/R8UvabGJ1c2XtxSMD8Jz5CnzbKenFVwu/oyoRI7aY="
+        crossorigin="anonymous"
+        nonce="{{ csp_nonce }}"></script>
+{% endblock %}
+{% endblock %}

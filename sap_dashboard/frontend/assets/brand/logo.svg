@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 64" role="img" aria-label="SigmanexSec">
+  <title>SigmanexSec</title>
+  <defs>
+    <linearGradient id="snxBrand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="55%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <linearGradient id="snxBrandSoft" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#c4b5fd"/>
+    </linearGradient>
+    <filter id="snxGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1.4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Hex glyph: stylized Σ inside hexagonal shield -->
+  <g transform="translate(4 4)" filter="url(#snxGlow)">
+    <path d="M28 2 L52 16 L52 40 L28 54 L4 40 L4 16 Z"
+          fill="none" stroke="url(#snxBrand)" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M16 16 L40 16 L40 22 L24 22 L32 28 L24 34 L40 34 L40 40 L16 40 L16 35 L26 28 L16 21 Z"
+          fill="url(#snxBrand)"/>
+    <circle cx="28" cy="28" r="1.4" fill="#0a0e14"/>
+  </g>
+
+  <!-- Wordmark -->
+  <g font-family="'Inter','Segoe UI',system-ui,-apple-system,sans-serif" font-weight="700">
+    <text x="72" y="36" font-size="22" letter-spacing="0.5" fill="currentColor">Sigmanex</text>
+    <text x="217" y="36" font-size="22" letter-spacing="0.5" fill="url(#snxBrandSoft)">Sec</text>
+    <text x="73" y="52" font-size="9" letter-spacing="3.4" font-weight="500"
+          fill="currentColor" opacity="0.55">SECURITY · ASSESSMENT · PLATFORM</text>
+  </g>
+</svg>

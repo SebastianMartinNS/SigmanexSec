@@ -1,0 +1,39 @@
+diff --git a/tools/server/webui/src/lib/utils/favicon.ts b/tools/server/webui/src/lib/utils/favicon.ts
+index 4c75299..08a3a89 100644
+--- a/tools/server/webui/src/lib/utils/favicon.ts
++++ b/tools/server/webui/src/lib/utils/favicon.ts
+@@ -17,9 +17,34 @@ import {
+  * @param urlString - The URL to get the favicon for
+  * @returns The favicon URL or null if invalid
+  */
++// Matches IPv4 dotted-quad addresses (e.g. "127.0.0.1").
++const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
++
++/**
++ * Returns true for hostnames that have no public favicon (loopback, private
++ * networks, raw IPs, single-label hosts). For these we return null instead of
++ * pinging Google's favicon service through the CORS proxy: the request would
++ * either parse to a meaningless `domain=…` (e.g. `0.1` for `127.0.0.1`) or
++ * fail because llama-server's CORS proxy is built without OpenSSL and cannot
++ * speak HTTPS, producing endless 500 errors that flood the UI.
++ */
++function isNonRoutableHost(hostname: string): boolean {
++	const h = hostname.toLowerCase();
++	if (!h || h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost')) return true;
++	// IPv6 literal in URL hostnames is wrapped in brackets, but URL.hostname strips them.
++	if (h.includes(':')) return true; // IPv6
++	if (IPV4_REGEX.test(h)) return true;
++	// Single-label hostnames are not resolvable on the public Internet.
++	if (!h.includes(DOMAIN_SEPARATOR)) return true;
++	return false;
++}
++
+ export function getFaviconUrl(urlString: string): string | null {
+ 	try {
+ 		const url = new URL(urlString);
++		if (isNonRoutableHost(url.hostname)) {
++			return null;
++		}
+ 		const hostnameParts = url.hostname.split(DOMAIN_SEPARATOR);
+ 		const rootDomain =
+ 			hostnameParts.length >= ROOT_DOMAIN_MIN_PARTS

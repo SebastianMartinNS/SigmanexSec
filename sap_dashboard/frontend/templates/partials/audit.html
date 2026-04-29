@@ -1,0 +1,58 @@
+{# Audit Live #}
+<section x-show="active === 'audit'" x-cloak>
+  <div class="flex items-end justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Audit Live
+        <span class="text-sm text-slate-400 font-normal">· MCP + agent · qualunque client</span>
+      </h1>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="snx-pill" :class="audit.ws ? 'snx-pill--ok' : ''">
+        <span class="snx-dot is-pulse" :style="audit.ws ? 'color:#10b981' : 'color:#64748b'"></span>
+        <span x-text="audit.ws ? 'live' : 'idle'"></span>
+      </span>
+      <div class="snx-field--icon">
+        <svg class="icon icon-left" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-search"/></svg>
+        <input x-model="audit.filter" placeholder="filtra (engagement, tool, host…)"
+               class="snx-input snx-input--with-icon" style="width:18rem">
+      </div>
+      <button class="snx-btn snx-btn--ghost" @click="openAuditWs()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-refresh"/></svg> Reconnect
+      </button>
+    </div>
+  </div>
+
+  <div id="auditlog" class="snx-surface overflow-auto" style="max-height:74vh">
+    <table class="snx-table snx-mono text-[12px]">
+      <thead class="sticky top-0" style="background: var(--snx-bg-elev2);">
+        <tr><th>time</th><th>actor</th><th>action</th><th>engagement</th><th>target</th><th>details</th></tr>
+      </thead>
+      <tbody>
+        <template x-for="e in auditFiltered()" :key="e.id">
+          <tr class="align-top">
+            <td class="text-slate-500 whitespace-nowrap" x-text="(e.timestamp||'').replace('T',' ').slice(0,19)"></td>
+            <td class="text-cyan-300" x-text="e.actor"></td>
+            <td>
+              <span class="snx-pill" :class="{
+                'snx-pill--warn':  e.action==='tool_execute',
+                'snx-pill--ok':    e.action==='tool_complete',
+                'snx-pill--danger': /error|block/.test(e.action||''),
+              }" x-text="e.action"></span>
+            </td>
+            <td class="text-slate-400" x-text="(e.engagement_id||'').slice(0,8)"></td>
+            <td class="text-slate-300" x-text="e.target"></td>
+            <td class="text-slate-300">
+              <pre class="whitespace-pre-wrap break-all m-0" x-text="JSON.stringify(e.details||{}, null, 0)"></pre>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="!audit.entries.length">
+          <td colspan="6" class="snx-empty">
+            <svg class="icon"><use href="/assets/brand/icons.svg#icon-activity"/></svg>
+            <div>Nessuna attività registrata. Esegui un tool per iniziare.</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>

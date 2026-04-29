@@ -1,0 +1,31 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-m 'not live and not lab'"
+filterwarnings = [
+    "ignore::DeprecationWarning:pydantic.*",
+    "ignore::DeprecationWarning:websockets.*",
+]
+markers = [
+    "lab: end-to-end tests that require PENTEST_LAB_CIDR and the lab to be reachable",
+    "slow: tests that take more than ~2s",
+    "live: live OSINT tests requiring real binaries + internet (gated by SAP_LIVE_OSINT=1)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["llama.cpp", "build", "sap_dashboard/frontend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "S", "UP", "I"]
+ignore = [
+    "E501",  # long lines acceptable in prompts/configs
+    "S101",  # assert usage fine in tests
+    "S603",  # subprocess.run with list-args is the correct pattern here
+    "S607",  # start-process-with-partial-path is intentional (tools come from PATH)
+    "B008",  # FastAPI Depends() default
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "S311"]

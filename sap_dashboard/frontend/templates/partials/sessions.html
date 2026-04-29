@@ -1,0 +1,90 @@
+{# Sessions (PTY) #}
+<section x-show="active === 'sessions'" x-cloak>
+  <div class="mb-5">
+    <h1 class="text-2xl font-bold tracking-tight">Sessioni interattive</h1>
+    <p class="text-sm text-slate-400 mt-1">Spawn e controllo di tool interattivi via PTY.</p>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="snx-surface p-5 lg:col-span-1">
+      <div class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-3">Spawn</div>
+
+      <div class="snx-field">
+        <label>Engagement</label>
+        <select class="snx-select" x-model="sessForm.engagement_id">
+          <option value="">— seleziona —</option>
+          <template x-for="e in engagements" :key="e.id">
+            <option :value="e.id" x-text="`${e.name||e.id} (${e.client||'-'})`"></option>
+          </template>
+        </select>
+      </div>
+
+      <div class="snx-field mt-3">
+        <label>Tool</label>
+        <select class="snx-select" x-model="sessForm.tool">
+          <option value="">— seleziona —</option>
+          <template x-for="t in interactiveTools" :key="t.name">
+            <option :value="t.name" x-text="`${t.name} [${t.category}]`"></option>
+          </template>
+        </select>
+      </div>
+
+      <div class="snx-field mt-3">
+        <label>Args (JSON)</label>
+        <textarea class="snx-textarea snx-mono text-xs" rows="4"
+                  x-model="sessForm.args_json" placeholder='{"target":"10.0.0.1"}'></textarea>
+      </div>
+
+      <button class="snx-btn snx-btn--primary snx-btn--block mt-4"
+              @click="startSession()" :disabled="!sessForm.engagement_id || !sessForm.tool">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-play"/></svg> Avvia sessione
+      </button>
+      <p x-show="sessError" class="text-xs text-rose-400 mt-2" x-text="sessError"></p>
+    </div>
+
+    <div class="snx-surface p-5 lg:col-span-2">
+      <div class="flex items-center mb-3">
+        <div class="text-sm font-semibold uppercase tracking-wider text-slate-300">Sessioni attive</div>
+        <button class="snx-btn snx-btn--ghost ml-auto text-xs" @click="loadSessions()">
+          <svg class="icon"><use href="/assets/brand/icons.svg#icon-refresh"/></svg> Aggiorna
+        </button>
+      </div>
+      <table class="snx-table text-xs">
+        <thead><tr><th>id</th><th>tool</th><th>eng</th><th>idle</th><th>alive</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="s in sessList" :key="s.session_id">
+            <tr :class="activeSession===s.session_id ? 'bg-slate-800/40' : ''">
+              <td class="snx-mono">
+                <a class="text-cyan-300 cursor-pointer" @click="selectSession(s.session_id)" x-text="s.session_id.slice(0,8)"></a>
+              </td>
+              <td x-text="s.tool"></td>
+              <td x-text="s.engagement_id"></td>
+              <td x-text="s.idle_seconds + 's'"></td>
+              <td><span class="snx-pill" :class="s.alive ? 'snx-pill--ok' : 'snx-pill--danger'" x-text="s.alive ? 'yes' : 'no'"></span></td>
+              <td><button class="snx-btn snx-btn--danger text-[11px]" @click="closeSession(s.session_id)">close</button></td>
+            </tr>
+          </template>
+          <tr x-show="!sessList.length">
+            <td colspan="6" class="snx-empty">
+              <svg class="icon"><use href="/assets/brand/icons.svg#icon-terminal"/></svg>
+              <div>Nessuna sessione attiva.</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="snx-surface p-5 mt-4" x-show="activeSession" x-cloak>
+    <div class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-2">
+      Terminal · <span class="snx-mono text-xs" x-text="activeSession"></span>
+    </div>
+    <pre class="bg-black text-emerald-300 text-xs p-3 rounded h-80 overflow-auto whitespace-pre-wrap snx-mono" x-text="sessOutput"></pre>
+    <div class="flex mt-2 gap-2">
+      <input class="snx-input flex-1 snx-mono text-xs" placeholder="comando…" x-model="sessInput" @keydown.enter.prevent="sendSession()">
+      <input class="snx-input w-44 snx-mono text-xs" placeholder="expect prompt (opt)" x-model="sessExpect">
+      <button class="snx-btn snx-btn--primary" @click="sendSession()">Send</button>
+      <button class="snx-btn" @click="readSession()">Read</button>
+    </div>
+  </div>
+</section>

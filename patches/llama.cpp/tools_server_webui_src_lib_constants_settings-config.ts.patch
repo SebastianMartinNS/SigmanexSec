@@ -1,0 +1,21 @@
+diff --git a/tools/server/webui/src/lib/constants/settings-config.ts b/tools/server/webui/src/lib/constants/settings-config.ts
+index e76fa89..af42f60 100644
+--- a/tools/server/webui/src/lib/constants/settings-config.ts
++++ b/tools/server/webui/src/lib/constants/settings-config.ts
+@@ -24,7 +24,15 @@ export const SETTING_CONFIG_DEFAULT: Record<string, string | number | boolean> =
+ 	autoMicOnEmpty: false,
+ 	fullHeightCodeBlocks: false,
+ 	showRawModelNames: false,
+-	mcpServers: '[]',
++	mcpServers:
++		'[' +
++			'{"id":"sap-engagement","name":"SAP Engagement","url":"http://127.0.0.1:9001/mcp","enabled":true,"useProxy":false},' +
++			'{"id":"sap-recon","name":"SAP Recon","url":"http://127.0.0.1:9002/mcp","enabled":true,"useProxy":false},' +
++			'{"id":"sap-exploit","name":"SAP Exploit","url":"http://127.0.0.1:9003/mcp","enabled":true,"useProxy":false},' +
++			'{"id":"sap-blueteam","name":"SAP Blueteam","url":"http://127.0.0.1:9004/mcp","enabled":true,"useProxy":false},' +
++			'{"id":"sap-parrot","name":"SAP Parrot","url":"http://127.0.0.1:9005/mcp","enabled":true,"useProxy":false},' +
++			'{"id":"sap-osint","name":"SAP OSINT","url":"http://127.0.0.1:9006/mcp","enabled":true,"useProxy":false}' +
++		']',
+ 	mcpServerUsageStats: '{}', // JSON object: { [serverId]: usageCount }
+ 	agenticMaxTurns: 10,
+ 	agenticMaxToolPreviewLines: 25,

@@ -1,0 +1,8 @@
+# deploy/podman/sap.network — Podman quadlet network (P4.2).
+# Loopback-only bridge for inter-service comms; nothing exposed externally.
+[Network]
+NetworkName=sap-net
+DisableDNS=true
+Internal=true
+Subnet=10.89.0.0/24
+Gateway=10.89.0.1

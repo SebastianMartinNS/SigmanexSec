@@ -1,0 +1,56 @@
+[Unit]
+Description=SAP — Sudo broker (root-helper for privileged tools)
+After=local-fs.target
+
+[Service]
+# ── This service intentionally runs as root because that is its purpose:
+# brokering sudo on behalf of the unprivileged operator. We therefore
+# CANNOT set NoNewPrivileges or strip CAP_*. We DO apply every other
+# hardening directive that does not break sudo invocation.
+User=root
+Group=root
+UMask=0077
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=no            # required: we exec /usr/bin/sudo
+RestrictNamespaces=yes
+PrivateUsers=no                # required for setuid sudo
+RemoveIPC=yes
+NoNewPrivileges=no             # required for setuid sudo
+
+# AF_UNIX only — broker speaks over /run/sap/sudo.sock; never opens TCP.
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+
+LimitCORE=0
+LimitNOFILE=512
+TasksMax=64
+
+RuntimeDirectory=sap
+RuntimeDirectoryMode=0700
+
+ReadOnlyPaths=/opt/sap
+ReadWritePaths=/run/sap /var/log/sap /var/lib/sap
+
+Environment=SAP_SUDO_BROKER_PROCESS=1
+Environment=SAP_STATE_DIR=/var/lib/sap
+WorkingDirectory=/opt/sap
+ExecStart=/opt/sap/.venv/bin/python -m core.sudo_broker
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

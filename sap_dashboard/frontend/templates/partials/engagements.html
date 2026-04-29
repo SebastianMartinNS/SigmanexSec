@@ -1,0 +1,85 @@
+{# Engagements — table + reset dialog #}
+<section x-show="active === 'engagements'" x-cloak>
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Engagements</h1>
+      <p class="text-sm text-slate-400 mt-1">Gestione assessment, export evidenze e reset contesti.</p>
+    </div>
+    <div class="flex gap-2">
+      <button class="snx-btn snx-btn--ghost" @click="loadEngagements()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-refresh"/></svg> Aggiorna
+      </button>
+      <button class="snx-btn snx-btn--danger" @click="confirmSystemReset()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-trash"/></svg> Reset sistema
+      </button>
+    </div>
+  </div>
+
+  <div class="snx-surface p-2">
+    <table class="snx-table">
+      <thead>
+        <tr>
+          <th>Nome</th><th>Cliente</th><th>Phase</th><th>Status</th><th>Creato</th><th class="text-right">Azioni</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="e in engagements" :key="e.id">
+          <tr>
+            <td>
+              <div class="font-medium" x-text="e.name"></div>
+              <div class="text-[11px] snx-mono text-slate-500" x-text="e.id"></div>
+            </td>
+            <td x-text="e.client"></td>
+            <td><span class="snx-pill" x-text="e.current_phase"></span></td>
+            <td>
+              <span class="snx-pill" :class="e.status==='active' ? 'snx-pill--ok' : ''" x-text="e.status"></span>
+            </td>
+            <td class="text-xs text-slate-500" x-text="e.created_at"></td>
+            <td class="text-right whitespace-nowrap">
+              <button class="snx-btn" @click="selectedEngagement = e.id; active = 'agent'">Apri</button>
+              <button class="snx-btn snx-btn--ghost" @click="exportEngagement(e.id, false)" title="Bundle ZIP (segreti redatti)">
+                <svg class="icon"><use href="/assets/brand/icons.svg#icon-download"/></svg> Export
+              </button>
+              <button class="snx-btn snx-btn--ghost" @click="exportEngagement(e.id, true)" title="Bundle ZIP con credenziali">+secrets</button>
+              <button class="snx-btn snx-btn--danger" @click="openResetDialog(e)">
+                <svg class="icon"><use href="/assets/brand/icons.svg#icon-trash"/></svg> Reset
+              </button>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="!engagements.length">
+          <td colspan="6" class="snx-empty">
+            <svg class="icon"><use href="/assets/brand/icons.svg#icon-shield"/></svg>
+            <div>Nessun engagement registrato.</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {# Reset dialog #}
+  <div x-show="resetDialog.open" x-cloak class="snx-modal-backdrop" @keydown.escape.window="resetDialog.open=false">
+    <div class="snx-glass snx-modal" role="dialog" aria-modal="true" style="max-width:560px">
+      <h2>Reset contesto engagement</h2>
+      <p>
+        <strong x-text="resetDialog.engagement?.name"></strong>
+        <span class="snx-mono text-xs text-slate-500" x-text="resetDialog.engagement?.id"></span>
+      </p>
+      <div class="space-y-2 text-sm">
+        <label class="snx-checkbox"><input type="checkbox" x-model="resetDialog.body.wipe_findings"> Cancella findings</label>
+        <label class="snx-checkbox"><input type="checkbox" x-model="resetDialog.body.wipe_hosts"> Cancella host & servizi</label>
+        <label class="snx-checkbox"><input type="checkbox" x-model="resetDialog.body.wipe_credentials"> Cancella credenziali</label>
+        <label class="snx-checkbox"><input type="checkbox" x-model="resetDialog.body.wipe_runs"> Cancella sessioni agent</label>
+        <label class="snx-checkbox"><input type="checkbox" x-model="resetDialog.body.wipe_audit"> Cancella audit log per questo engagement</label>
+        <div class="snx-divider my-2"></div>
+        <label class="snx-checkbox"><input type="checkbox" x-model="resetDialog.body.delete_engagement">
+          <span class="text-rose-400">Elimina engagement (irreversibile)</span></label>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button class="snx-btn snx-btn--ghost" @click="resetDialog.open = false">Annulla</button>
+        <button class="snx-btn snx-btn--danger" @click="executeReset()">Esegui reset</button>
+      </div>
+      <p x-show="resetDialog.result" x-cloak class="text-xs text-emerald-400 mt-3" x-text="resetDialog.result"></p>
+    </div>
+  </div>
+</section>

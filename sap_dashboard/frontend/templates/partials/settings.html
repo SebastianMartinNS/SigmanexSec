@@ -1,0 +1,26 @@
+{# Settings — runtime config (read-only) #}
+<section x-show="active === 'settings'" x-cloak>
+  <div class="mb-5">
+    <h1 class="text-2xl font-bold tracking-tight">Impostazioni runtime</h1>
+    <p class="text-sm text-slate-400 mt-1">Snapshot di sola lettura della configurazione caricata.</p>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <template x-for="(v, k) in settings" :key="k">
+      <div class="snx-surface p-5">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-sm font-semibold uppercase tracking-wider text-slate-300" x-text="k"></div>
+          <button class="snx-btn snx-btn--ghost text-[11px]"
+                  @click="navigator.clipboard.writeText(JSON.stringify(v, null, 2)); window.SAP && window.SAP.toast({type:'ok',msg:'Copiato'})">
+            Copia
+          </button>
+        </div>
+        <pre class="snx-mono text-[12px] text-slate-300 whitespace-pre-wrap leading-snug" x-text="JSON.stringify(v, null, 2)"></pre>
+      </div>
+    </template>
+    <div class="snx-empty" x-show="!Object.keys(settings || {}).length">
+      <svg class="icon"><use href="/assets/brand/icons.svg#icon-settings"/></svg>
+      <div>Nessuna impostazione caricata.</div>
+    </div>
+  </div>
+</section>

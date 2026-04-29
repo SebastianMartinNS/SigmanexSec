@@ -1,0 +1,13 @@
+diff --git a/tools/server/webui/src/lib/constants/mcp.ts b/tools/server/webui/src/lib/constants/mcp.ts
+index 8f10b15..3333893 100644
+--- a/tools/server/webui/src/lib/constants/mcp.ts
++++ b/tools/server/webui/src/lib/constants/mcp.ts
+@@ -27,7 +27,7 @@ export const DEFAULT_MCP_CONFIG = {
+ 	protocolVersion: MCP_PROTOCOL_VERSION,
+ 	capabilities: { tools: { listChanged: true } } as ClientCapabilities,
+ 	clientInfo: { name: 'llama-webui-mcp', version: DEFAULT_CLIENT_VERSION } as Implementation,
+-	requestTimeoutSeconds: 300, // 5 minutes for long-running tools
++	requestTimeoutSeconds: 600, // 10 minutes for long-running tools (e.g. nikto/nmap)
+ 	connectionTimeoutMs: 10_000 // 10 seconds for connection establishment
+ } as const;
+ 

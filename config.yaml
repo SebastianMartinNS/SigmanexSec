@@ -1,0 +1,238 @@
+executor:
+  max_output_bytes: 524288       # 512 KB hard cap on stdout in-memory copy
+  # In-memory cap for stderr (defaults to max_output_bytes when unset).
+  # NB: full stderr is always persisted to the ToolOutputStore on disk.
+  stderr_max_output_bytes: 524288
+  # When true, every tool execution is mirrored to the canonical
+  # ToolOutputStore (sessions/runs/{run}/tool_outputs/{call_id}/...) +
+  # SQLite index. Disable only for ephemeral test rigs.
+  persist_outputs: true
+  default_timeout_seconds: 300   # 5 min default per tool call
+  allowed_tools:
+    - nmap
+    - masscan
+    - sqlmap
+    - msfconsole
+    - msfvenom
+    - hydra
+    - john
+    - hashcat
+    - gobuster
+    - ffuf
+    - feroxbuster
+    - dirsearch
+    - wfuzz
+    - dirb
+    - nikto
+    - whatweb
+    - wafw00f
+    - commix
+    - dnsrecon
+    - dnsenum
+    - nbtscan
+    - enum4linux
+    - smbclient
+    - responder
+    - netexec
+    - evil-winrm
+    - chisel
+    - socat
+    - proxychains4
+    - tcpdump
+    - bettercap
+    - mitmproxy
+    - binwalk
+    - hashid
+    - cewl
+    - aircrack-ng
+    - wifite
+    - reaver
+    - snmp-check
+    - onesixtyone
+    - recon-ng
+    - python3
+  # Regex patterns that will BLOCK execution if found in args
+  blocked_arg_patterns:
+    - "rm\\s+-rf"
+    - "\\|\\s*(bash|sh|zsh|fish)"
+    - "&&\\s*rm\\s"
+    - ">\\s*/etc/"
+    - ">\\s*/proc/"
+    - "curl.*\\|\\s*(bash|sh)"
+    - "wget.*\\|\\s*(bash|sh)"
+    - "__import__\\s*\\("
+    - "exec\\s*\\("
+    - "eval\\s*\\("
+    - "os\\.system"
+    - "subprocess\\.call"
+
+scope:
+  enforce: true   # Hard stop if target not in engagement scope
+
+# ─────────────────────────────────────────────
+# Sudo elevation subsystem (see SPEC §18)
+# ─────────────────────────────────────────────
+sudo:
+  enabled: true
+  # P1 hardening: aggressive TTL — operator must re-unlock often.
+  default_ttl_seconds: 300        # 5 min default (was 600)
+  max_ttl_seconds: 600            # 10 min absolute max (was 900)
+  noninteractive_ttl_seconds: 30  # cap when unlock is triggered without UI
+  max_failures_before_lock: 3
+  # Inactivity timer is now stricter than TTL: any idle window > 3 min locks
+  # the vault even if the TTL hasn't elapsed.
+  inactivity_lock_seconds: 180
+  privileged_tools:
+    - responder
+    - tcpdump
+    - bettercap
+    - ettercap
+    - masscan
+    - arp-scan
+    - airmon-ng
+    - airodump-ng
+    - aireplay-ng
+    - hcxdumptool
+    - mdk4
+    - reaver
+    - bully
+    - iptables
+    - nft
+    - ip
+    - mitm6
+
+# ─────────────────────────────────────────────
+# Agent run modes (see SPEC §20)
+# ─────────────────────────────────────────────
+agent:
+  default_mode: execution         # planning | execution | step
+  step_mode_approval_timeout_s: 300
+  # Hard cap (chars) on tool results forwarded to the on_message callback
+  # (dashboard / WebSocket). The full output is always persisted by the
+  # ToolOutputStore — this only sizes the live stream payload.
+  callback_result_cap: 16384
+  callback_head_fraction: 0.75
+  planning_mode:
+    max_steps: 60
+    require_rationale: true
+  execution_mode:
+    auto_pause_on_destructive: true
+    destructive_flags:
+      - "--dump"
+      - "--os-shell"
+      - "--os-pwn"
+      - "responder"
+      - "ettercap -M"
+      - "msfconsole exploit run"
+
+dashboard:
+  # HTTP Basic credentials for the control dashboard. Leave both empty
+  # to disable the dashboard (every API call returns 503). Override via
+  # SAP_DASHBOARD_USER / SAP_DASHBOARD_PASS env vars.
+  auth:
+    user: ""
+    password: ""
+  # Allowed CORS origins (only set this if the frontend is served separately).
+  cors_origins: []
+
+llm:
+  provider: "${LLM_PROVIDER}"
+  model: "${LLM_MODEL}"
+  max_tokens: 8096
+  temperature: 0.1
+
+# ────────────────────────────────────────
+# Long-term memory layer (MemGPT-style)
+# ────────────────────────────────────────
+memory:
+  enabled: true
+  embedding_model: "intfloat/multilingual-e5-small"
+  embedding_dim: 384
+  ctx_budget_tokens: 32000      # hard upper bound on prompt size
+  summary_trigger_tokens: 24000 # compact when projected cost exceeds this
+  keep_recent_messages: 12      # always keep at least N most-recent turns verbatim
+  archival_global: false        # set true to allow cross-engagement search
+  archival_db_path: ""          # empty -> sessions/memory.db
+  core_block_caps:
+    persona: 1500
+    engagement: 2000
+    targets: 4000
+    findings_summary: 4000
+    scratchpad: 3000
+
+reporting:
+  severity_colors:
+    critical: red
+    high: dark_orange
+    medium: yellow
+    low: cyan
+    info: white
+  cvss_thresholds:
+    critical: 9.0
+    high: 7.0
+    medium: 4.0
+    low: 0.1
+
+mitre_attack:
+  # Tool -> ATT&CK technique mapping (initial)
+  nmap: ["T1046", "T1595.001"]
+  masscan: ["T1046"]
+  nikto: ["T1595.003"]
+  sqlmap: ["T1190"]
+  hydra: ["T1110.001", "T1110.003"]
+  hashcat: ["T1110.002"]
+  john: ["T1110.002"]
+  gobuster: ["T1595.003"]
+  ffuf: ["T1595.003"]
+  netexec: ["T1021.002"]
+  evil-winrm: ["T1021.006"]
+  enum4linux: ["T1087.002", "T1069.002"]
+  dnsrecon: ["T1590.002"]
+
+# ─────────────────────────────────────────────
+# Adaptive memory & dynamic playbooks (PENTEST_AGENT_MCP_SPEC §adaptive)
+# Backward-compatible: every capability is opt-in via a rollout mode.
+# Modes: "off" | "shadow" | "advisory" | "enforce"
+#   off       — feature is disabled
+#   shadow    — collect KPI/audit only, no behavior change
+#   advisory  — surface hints to the agent but do not constrain it
+#   enforce   — the runner acts on the hint (block / pivot / verify)
+# ─────────────────────────────────────────────
+adaptive:
+  enabled: true
+  rollout_mode: shadow
+  # Decision-level audit events (DecisionKind). Required for KPI dashboard.
+  emit_decision_audit: true
+  # Confidence scoring rubric & thresholds.
+  confidence:
+    # Default score assigned to a finding when no execution context is provided.
+    default_score: 0.5
+    # Per-phase minimum confidence required to publish a finding without
+    # additional verification. Below threshold the runner SHOULD trigger
+    # the verification loop (Phase 5) once enabled.
+    phase_thresholds:
+      reconnaissance: 0.40
+      scanning: 0.55
+      exploitation: 0.70
+      post_exploitation: 0.75
+      reporting: 0.80
+  # Scenario classifier perimeter (Phase 3 — implementation pending).
+  playbooks:
+    enabled_scenarios: ["web", "network", "ad", "mixed"]
+    fallback_chain:
+      timeout: ["alt_tool_suggestion", "narrow_scope", "abort"]
+      auth_failed: ["credential_recheck", "alt_tool_suggestion"]
+      conn_refused: ["scope_recheck", "alt_tool_suggestion"]
+  # Anti-monotony runtime (Phase 4 — circuit-breaker is already live).
+  repetition:
+    # Hard repetition limit is still controlled by SAP_TOOL_LOOP_LIMIT (env).
+    # When auto_pivot=true the runner returns a pivot suggestion instead of
+    # the plain abort message at the limit.
+    auto_pivot: true
+    # Maximum number of pivots per run before the runner stops the loop.
+    max_pivots_per_run: 3
+  # Verification loop (Phase 5).
+  verification:
+    enabled: false
+    drift_penalty: 0.20
+    confirm_bonus: 0.10

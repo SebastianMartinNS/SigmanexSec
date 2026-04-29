@@ -1,0 +1,63 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report security vulnerabilities here.** Use the process
+        in [SECURITY.md](../../SECURITY.md) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Clear description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. `bash start_all.sh`
+        2. `python cli.py engage` …
+        3. Observe …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log excerpts
+      description: |
+        From `logs/audit.jsonl`, `logs/*.log`, or `journalctl -u sap-*`.
+        **Redact PII and credentials before pasting.**
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: `git rev-parse --short HEAD` and the `[Unreleased]` / tag you are on.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS + kernel + GPU + Python (e.g. `Parrot 6.x, kernel 6.17, RTX 4060 8GB, Python 3.13`).
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I am running against systems / identities I am authorized to test.
+          required: true
+        - label: I have searched existing issues.
+          required: true

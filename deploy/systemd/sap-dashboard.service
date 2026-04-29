@@ -1,0 +1,73 @@
+[Unit]
+Description=SAP — Control Dashboard (FastAPI, port 8765)
+After=network-online.target sap-llm.service
+Wants=network-online.target
+
+[Service]
+User=sap
+Group=sap
+UMask=0077
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+PrivateUsers=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @debug @cpu-emulation @obsolete @raw-io @reboot @swap @mount @clock
+
+# Loopback only — dashboard never binds 0.0.0.0.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1/128
+
+LimitCORE=0
+LimitNOFILE=4096
+TasksMax=512
+
+StateDirectory=sap
+StateDirectoryMode=0700
+RuntimeDirectory=sap
+RuntimeDirectoryMode=0700
+LogsDirectory=sap
+LogsDirectoryMode=0700
+
+ReadOnlyPaths=/opt/sap
+ReadWritePaths=/var/lib/sap /run/sap /var/log/sap
+
+EnvironmentFile=-/etc/sap/secrets.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=SAP_STATE_DIR=/var/lib/sap
+Environment=XDG_STATE_HOME=/var/lib/sap
+Environment=XDG_CONFIG_HOME=/etc/sap
+Environment=SAP_MLOCK_ALL=1
+WorkingDirectory=/opt/sap
+ExecStart=/opt/sap/.venv/bin/python /opt/sap/cli.py dashboard --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

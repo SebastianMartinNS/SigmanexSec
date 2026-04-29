@@ -1,0 +1,35 @@
+# deploy/podman/sap-dashboard.container — Podman quadlet (P4.2).
+# Place at ~/.config/containers/systemd/sap-dashboard.container for rootless
+# user-mode systemd. The dashboard binds 127.0.0.1:8765 only.
+[Unit]
+Description=SAP Dashboard (rootless Podman)
+After=network-online.target
+
+[Container]
+Image=localhost/sap-dashboard:latest
+ContainerName=sap-dashboard
+Network=sap-net
+PublishPort=127.0.0.1:8765:8765
+ReadOnly=true
+Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=64m
+NoNewPrivileges=true
+DropCapability=ALL
+SecurityLabelType=container_t
+SeccompProfile=/etc/sap/seccomp-dashboard.json
+Volume=sap-state:/var/lib/sap:Z
+Volume=sap-secrets:/etc/sap:Z,ro
+Environment=SAP_STATE_DIR=/var/lib/sap
+Environment=XDG_STATE_HOME=/var/lib/sap
+Environment=XDG_CONFIG_HOME=/etc/sap
+Environment=SAP_MLOCK_ALL=1
+HealthCmd=python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health',timeout=3)"
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

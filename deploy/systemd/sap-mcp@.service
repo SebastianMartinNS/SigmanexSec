@@ -1,0 +1,69 @@
+[Unit]
+Description=SAP — MCP server (%i)
+After=network-online.target
+
+[Service]
+User=sap
+Group=sap
+UMask=0077
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+PrivateUsers=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @debug @cpu-emulation @obsolete @reboot @swap @mount @clock
+
+# MCP servers may exec offensive tools that need raw sockets / packet
+# capture. RestrictAddressFamilies stays generous; IPAddress filter
+# remains loopback-only because the upstream tools are spawned by the
+# MCP and inherit these limits unless explicitly relaxed.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1/128
+
+LimitCORE=0
+LimitNOFILE=4096
+TasksMax=512
+
+StateDirectory=sap
+RuntimeDirectory=sap
+LogsDirectory=sap
+
+ReadOnlyPaths=/opt/sap
+ReadWritePaths=/var/lib/sap /run/sap /var/log/sap
+
+EnvironmentFile=-/etc/sap/secrets.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=SAP_STATE_DIR=/var/lib/sap
+WorkingDirectory=/opt/sap
+ExecStart=/opt/sap/.venv/bin/python -m mcp_servers.%i_server
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

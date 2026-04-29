@@ -1,0 +1,80 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# --- Local environment & secrets ---
+.env
+.env.local
+*.pem
+*.key
+SECURITY.asc.priv
+/etc/sap/
+
+# --- Runtime state (NEVER commit operational data) ---
+logs/*.jsonl
+logs/*.jsonl.head
+logs/*.pid
+logs/*.log
+# Runtime engagement data — NEVER commit (contains real targets, plans, findings)
+sessions/**
+!sessions/.gitkeep
+runs/**
+!runs/.gitkeep
+reports/**
+!reports/.gitkeep
+!reports/.gitkeep
+
+# --- Models & large binaries ---
+*.gguf
+*.bin
+*.safetensors
+models.sha256.tmp
+
+# --- llama.cpp build artefacts (the source tree is vendored) ---
+llama.cpp/build/
+llama.cpp/build-*/
+
+# --- Editor / OS ---
+.vscode/*
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Personal scratch files (root-level txt notes) ---
+/martin*.txt
+/octocat.txt
+/-.json
+parrot_tools.yaml.bak
+
+# --- Containers ---
+*.tar
+*.sif
+
+# --- llama.cpp vendored submodule ---
+# The submodule itself is tracked via .gitmodules.
+# The local patched working copy on disk stays here, but build artefacts
+# and any uncommitted modifications inside the submodule must not be
+# committed to the parent repo. Patches are kept under patches/llama.cpp/.
+llama.cpp/build/
+llama.cpp/build-*/
+llama.cpp/models/*.gguf
+llama.cpp/models/*.bin
+llama.cpp/tools/server/webui/node_modules/

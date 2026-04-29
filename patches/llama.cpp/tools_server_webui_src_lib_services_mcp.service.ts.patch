@@ -1,0 +1,63 @@
+diff --git a/tools/server/webui/src/lib/services/mcp.service.ts b/tools/server/webui/src/lib/services/mcp.service.ts
+index b38d186..9779426 100644
+--- a/tools/server/webui/src/lib/services/mcp.service.ts
++++ b/tools/server/webui/src/lib/services/mcp.service.ts
+@@ -356,7 +356,8 @@ export class MCPService {
+ 			clientCapabilities: effectiveCapabilities,
+ 			protocolVersion: DEFAULT_MCP_CONFIG.protocolVersion,
+ 			instructions,
+-			connectionTimeMs
++			connectionTimeMs,
++			requestTimeoutMs: serverConfig.requestTimeoutMs
+ 		};
+ 	}
+ 
+@@ -389,7 +390,10 @@ export class MCPService {
+ 	 */
+ 	static async listTools(connection: MCPConnection): Promise<Tool[]> {
+ 		try {
+-			const result = await connection.client.listTools();
++			const result = await connection.client.listTools(undefined, {
++				timeout: connection.requestTimeoutMs,
++				resetTimeoutOnProgress: true
++			});
+ 
+ 			return result.tools ?? [];
+ 		} catch (error) {
+@@ -413,7 +417,10 @@ export class MCPService {
+ 	 */
+ 	static async listPrompts(connection: MCPConnection): Promise<Prompt[]> {
+ 		try {
+-			const result = await connection.client.listPrompts();
++			const result = await connection.client.listPrompts(undefined, {
++				timeout: connection.requestTimeoutMs,
++				resetTimeoutOnProgress: true
++			});
+ 
+ 			return result.prompts ?? [];
+ 		} catch (error) {
+@@ -445,7 +452,10 @@ export class MCPService {
+ 		args?: Record<string, string>
+ 	): Promise<GetPromptResult> {
+ 		try {
+-			return await connection.client.getPrompt({ name, arguments: args });
++			return await connection.client.getPrompt({ name, arguments: args }, {
++				timeout: connection.requestTimeoutMs,
++				resetTimeoutOnProgress: true
++			});
+ 		} catch (error) {
+ 			console.error(`[MCPService][${connection.serverName}] Failed to get prompt:`, error);
+ 
+@@ -475,7 +485,11 @@ export class MCPService {
+ 			const result = await connection.client.callTool(
+ 				{ name: params.name, arguments: params.arguments },
+ 				undefined,
+-				{ signal }
++				{
++					signal,
++					timeout: connection.requestTimeoutMs,
++					resetTimeoutOnProgress: true
++				}
+ 			);
+ 
+ 			return {

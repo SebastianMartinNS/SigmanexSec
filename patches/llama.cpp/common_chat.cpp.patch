@@ -1,0 +1,102 @@
+diff --git a/common/chat.cpp b/common/chat.cpp
+index 29d2e5f..1a21d36 100644
+--- a/common/chat.cpp
++++ b/common/chat.cpp
+@@ -1591,6 +1591,81 @@ common_chat_params common_chat_templates_apply(const struct common_chat_template
+                               common_chat_templates_apply_legacy(tmpls, inputs);
+ }
+ 
++// Promote <tool_call>{...}</tool_call> blocks embedded in reasoning_content
++// into actual tool_calls. This allows thinking-native models (e.g. Qwen3) to
++// emit tool calls while still reasoning, without them being swallowed by the
++// <think>...</think> span. Only processes FULL (non-partial) parses to avoid
++// mid-stream half-JSON mishaps.
++// Promote <tool_call>{...}</tool_call> blocks embedded in reasoning_content
++// or content into actual tool_calls. This allows thinking-native models
++// (e.g. Qwen3) to emit tool calls while still reasoning, without them being
++// swallowed by the <think>...</think> span or left as raw text when the
++// active PEG parser does not recognise the tag in the content channel.
++static void promote_tool_calls_from_field(common_chat_msg & msg, std::string & src) {
++    if (src.empty()) {
++        return;
++    }
++    const std::string open_tag  = "<tool_call>";
++    const std::string close_tag = "</tool_call>";
++    std::string       out;
++    out.reserve(src.size());
++    size_t cursor = 0;
++    while (cursor < src.size()) {
++        auto open_pos = src.find(open_tag, cursor);
++        if (open_pos == std::string::npos) {
++            out.append(src, cursor, std::string::npos);
++            break;
++        }
++        auto close_pos = src.find(close_tag, open_pos + open_tag.size());
++        if (close_pos == std::string::npos) {
++            out.append(src, cursor, std::string::npos);
++            break;
++        }
++        std::string payload = src.substr(open_pos + open_tag.size(),
++                                         close_pos - (open_pos + open_tag.size()));
++        auto ws_l = payload.find_first_not_of(" \t\r\n");
++        auto ws_r = payload.find_last_not_of(" \t\r\n");
++        bool promoted = false;
++        if (ws_l != std::string::npos) {
++            payload = payload.substr(ws_l, ws_r - ws_l + 1);
++            try {
++                auto parsed = json::parse(payload);
++                if (parsed.is_object() && parsed.contains("name") && parsed.at("name").is_string()) {
++                    common_chat_tool_call tc;
++                    tc.name = parsed.at("name").get<std::string>();
++                    if (parsed.contains("arguments")) {
++                        const auto & args = parsed.at("arguments");
++                        tc.arguments = args.is_string() ? args.get<std::string>() : args.dump();
++                    } else {
++                        tc.arguments = "{}";
++                    }
++                    msg.tool_calls.push_back(tc);
++                    promoted = true;
++                }
++            } catch (...) {
++                // malformed JSON – leave block untouched
++            }
++        }
++        out.append(src, cursor, open_pos - cursor);
++        if (!promoted) {
++            out.append(src, open_pos, close_pos + close_tag.size() - open_pos);
++        }
++        cursor = close_pos + close_tag.size();
++    }
++    auto end = out.find_last_not_of(" \t\r\n");
++    if (end != std::string::npos) {
++        out.erase(end + 1);
++    } else {
++        out.clear();
++    }
++    src = std::move(out);
++}
++
++static void promote_tool_calls_from_reasoning(common_chat_msg & msg) {
++    promote_tool_calls_from_field(msg, msg.reasoning_content);
++    promote_tool_calls_from_field(msg, msg.content);
++}
++
+ common_chat_msg common_chat_parse(const std::string &               input,
+                                   bool                              is_partial,
+                                   const common_chat_parser_params & params) {
+@@ -1633,6 +1708,7 @@ common_chat_msg common_chat_peg_parse(const common_peg_arena &          src_pars
+                 fprintf(stderr, "\nAST for partial parse (fail):\n%s\n", ctx.ast.dump().c_str());
+                 fflush(stderr);
+             }
++            promote_tool_calls_from_reasoning(msg);
+             return msg;
+         }
+         throw std::runtime_error(std::string("Failed to parse input at pos ") + std::to_string(result.end) + ": " +
+@@ -1653,6 +1729,7 @@ common_chat_msg common_chat_peg_parse(const common_peg_arena &          src_pars
+     if (!is_partial) {
+         LOG_DBG("Parsed message: %s\n", common_chat_msgs_to_json_oaicompat({ msg }).at(0).dump().c_str());
+     }
++    promote_tool_calls_from_reasoning(msg);
+     return msg;
+ }
+ 

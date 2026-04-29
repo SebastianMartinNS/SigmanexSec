@@ -1,0 +1,101 @@
+{# Agent Console — run controls + approval gate + event stream #}
+<section x-show="active === 'agent'" x-cloak>
+  <div class="flex items-end justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Agent Console</h1>
+      <p class="text-sm text-slate-400 mt-1">Pianifica, esegui e supervisiona gli obiettivi dell'agente.</p>
+    </div>
+    <div x-show="currentRun" x-cloak class="text-xs text-slate-400">
+      run <code class="snx-mono" x-text="currentRun"></code> · <span x-text="runStatus.state || ''"></span>
+    </div>
+  </div>
+
+  <div class="snx-surface p-5 mb-4">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+      <div class="snx-field md:col-span-2">
+        <label>Engagement</label>
+        <select class="snx-select" x-model="selectedEngagement">
+          <option value="">— seleziona —</option>
+          <template x-for="e in engagements" :key="e.id">
+            <option :value="e.id" x-text="`${e.name} (${e.id.slice(0,8)})`"></option>
+          </template>
+        </select>
+      </div>
+      <div class="snx-field">
+        <label>Mode</label>
+        <select class="snx-select" x-model="runForm.mode">
+          <option>planning</option><option>execution</option><option>step</option>
+        </select>
+      </div>
+      <div class="snx-field">
+        <label>Max iter</label>
+        <input type="number" class="snx-input" x-model.number="runForm.max_iterations" />
+      </div>
+    </div>
+
+    <div class="snx-field mt-3">
+      <label>Objective</label>
+      <textarea class="snx-textarea snx-mono text-xs" rows="3"
+                placeholder="Recon and enumerate target.example.com, prioritize web exposure"
+                x-model="runForm.objective"></textarea>
+    </div>
+
+    <div class="flex flex-wrap gap-2 mt-3">
+      <button class="snx-btn snx-btn--primary"
+              @click="startRun()" :disabled="!selectedEngagement || !runForm.objective.trim()">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-play"/></svg> Avvia
+      </button>
+      <button class="snx-btn" @click="control('pause')" :disabled="!currentRun">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-pause"/></svg> Pausa
+      </button>
+      <button class="snx-btn" @click="control('resume')" :disabled="!currentRun">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-play"/></svg> Riprendi
+      </button>
+      <button class="snx-btn snx-btn--danger" @click="control('kill')" :disabled="!currentRun">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-stop"/></svg> Termina
+      </button>
+    </div>
+  </div>
+
+  {# Approval gate #}
+  <div class="snx-approval mb-4" x-show="pendingGate" x-cloak>
+    <svg class="snx-approval__icon" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-alert"/></svg>
+    <div class="snx-approval__body">
+      <div class="snx-approval__title">Approvazione richiesta</div>
+      <div class="text-sm"><span class="text-slate-400">motivo:</span> <span x-text="pendingGate?.reason"></span></div>
+      <pre x-text="pendingGate?.summary"></pre>
+      <div class="flex gap-2">
+        <button class="snx-btn snx-btn--primary" @click="resolveGate('allow')">
+          <svg class="icon"><use href="/assets/brand/icons.svg#icon-check"/></svg> Allow
+        </button>
+        <button class="snx-btn snx-btn--danger" @click="resolveGate('deny')">
+          <svg class="icon"><use href="/assets/brand/icons.svg#icon-x"/></svg> Deny
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# Event stream #}
+  <div class="snx-surface p-3 snx-mono text-xs h-[560px] overflow-y-auto" id="eventlog">
+    <template x-for="ev in events" :key="ev.seq">
+      <div class="mb-2" x-data="{ open: ev.type === 'assistant' || ev.type === 'done' || ev.type === 'tool_call' }">
+        <div>
+          <span class="text-slate-500" x-text="new Date(ev.ts*1000).toLocaleTimeString()"></span>
+          <span :class="`ev-${ev.type}`" x-text="`[${ev.type}]`"></span>
+          <span x-show="ev.type==='tools_loaded'" x-text="`${ev.count} tools from ${(ev.servers||[]).join(', ')}`"></span>
+          <span x-show="ev.type==='approval_required'" x-text="ev.summary"></span>
+          <span x-show="ev.type==='error'" x-text="ev.error"></span>
+          <span x-show="ev.type==='run_started'" x-text="`mode=${ev.mode} obj=${ev.objective}`"></span>
+          <a class="ev-toggle" x-show="(ev.text||ev.final_text||'').length > 200" @click="open = !open" x-text="open ? 'collapse' : 'expand'"></a>
+        </div>
+        <div class="ev-body" :class="{ 'collapsed': !open }"
+             x-show="ev.text || ev.final_text"
+             x-text="ev.text || ev.final_text"></div>
+      </div>
+    </template>
+    <div x-show="!events.length" class="snx-empty">
+      <svg class="icon"><use href="/assets/brand/icons.svg#icon-target"/></svg>
+      <div>Nessun evento. Avvia un run per iniziare.</div>
+    </div>
+  </div>
+</section>

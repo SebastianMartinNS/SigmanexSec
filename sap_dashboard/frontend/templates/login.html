@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Accedi · {{ brand.name }}{% endblock %}
+
+{% block body %}
+<a class="snx-skip" href="#login-card">Vai al modulo di accesso</a>
+
+<main class="snx-login" role="main">
+  <div class="snx-login__bg" aria-hidden="true"></div>
+
+  {# ── HERO ────────────────────────────────────────────────────────────── #}
+  <section class="snx-login__hero" aria-label="Brand">
+    <div class="flex items-center gap-3">
+      <img src="/assets/brand/mark.svg" alt="" width="48" height="48" />
+      <div>
+        <div class="text-xl font-extrabold tracking-tight">
+          <span class="snx-text-gradient">Sigmanex</span><span style="color: var(--snx-text-1);">Sec</span>
+        </div>
+        <div class="text-[11px] uppercase tracking-[0.22em] text-slate-500">{{ brand.tagline }}</div>
+      </div>
+    </div>
+
+    <div>
+      <h1>Operazioni di sicurezza,<br/><span class="snx-text-gradient">condotte con rigore.</span></h1>
+      <p class="mt-4">
+        Console operativa per recon, exploitation, blue team e reporting.
+        Audit trail integrale, RBAC, isolamento sudo a TTL e CSP nonce-based:
+        la solidità che le valutazioni di sicurezza richiedono.
+      </p>
+      <div class="snx-login__chips" aria-label="Caratteristiche">
+        <span class="snx-pill snx-pill--brand">RBAC viewer/operator/admin</span>
+        <span class="snx-pill snx-pill--brand">CSRF double-submit</span>
+        <span class="snx-pill snx-pill--brand">Audit JSONL firmato</span>
+        <span class="snx-pill snx-pill--brand">Sudo Vault TTL</span>
+      </div>
+    </div>
+
+    <div class="snx-login__art" aria-hidden="true"></div>
+
+    <footer class="text-xs text-slate-500 mt-auto flex items-center gap-3">
+      <span>© SigmanexSec · v{{ brand.version }}</span>
+      <span class="opacity-50">·</span>
+      <span>GDPR · ISO27001 aligned</span>
+    </footer>
+  </section>
+
+  {# ── LOGIN CARD ──────────────────────────────────────────────────────── #}
+  <section class="snx-login__panel" aria-label="Accesso">
+    <div id="login-card" class="snx-glass snx-login__card"
+         data-login-root data-next="{{ next_url }}"
+         x-data="loginPage()" x-init="init()">
+      <h2 class="snx-login__title">Accesso operatore</h2>
+      <p class="snx-login__subtitle">Inserisci le tue credenziali per accedere alla piattaforma.</p>
+
+      <form class="snx-login__form" @submit.prevent="submit()" novalidate autocomplete="on">
+        <div class="snx-field snx-field--icon">
+          <label for="login-user">Username</label>
+          <svg class="icon icon-left" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-user"/></svg>
+          <input id="login-user" class="snx-input snx-input--with-icon" type="text" name="username"
+                 autocomplete="username" required autocapitalize="none" autocorrect="off" spellcheck="false"
+                 x-model="form.user" :disabled="loading" />
+        </div>
+
+        <div class="snx-field snx-field--icon">
+          <label for="login-pass">Password</label>
+          <svg class="icon icon-left" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-lock"/></svg>
+          <input id="login-pass" class="snx-input snx-input--with-icon" :type="showPw ? 'text' : 'password'"
+                 name="password" autocomplete="current-password" required spellcheck="false"
+                 x-model="form.pass" :disabled="loading"
+                 @keydown.enter.prevent="submit()" />
+          <button type="button" class="icon-right" @click="showPw = !showPw"
+                  :aria-label="showPw ? 'Nascondi password' : 'Mostra password'">
+            <svg class="icon" aria-hidden="true" x-show="!showPw"><use href="/assets/brand/icons.svg#icon-eye"/></svg>
+            <svg class="icon" aria-hidden="true" x-show="showPw" x-cloak><use href="/assets/brand/icons.svg#icon-eye-off"/></svg>
+          </button>
+        </div>
+
+        <div class="snx-login__error" role="alert" x-show="error" x-cloak>
+          <svg class="icon" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-alert"/></svg>
+          <span x-text="error"></span>
+        </div>
+
+        <button class="snx-btn snx-btn--primary snx-btn--block" type="submit"
+                :disabled="loading || !form.user || !form.pass">
+          <span class="snx-spinner" x-show="loading" x-cloak aria-hidden="true"></span>
+          <svg class="icon" aria-hidden="true" x-show="!loading"><use href="/assets/brand/icons.svg#icon-arrow-right"/></svg>
+          <span x-text="loading ? 'Verifica…' : 'Accedi alla piattaforma'"></span>
+        </button>
+      </form>
+
+      <div class="snx-login__foot">
+        <span class="inline-flex items-center gap-1.5">
+          <span class="snx-dot is-pulse" style="color:#10b981" aria-hidden="true"></span>
+          <span x-data="{ok: null}" x-init="
+              fetch('/api/health').then(r => ok = r.ok).catch(() => ok = false)
+            ">
+            <span x-show="ok === true">Servizio operativo</span>
+            <span x-show="ok === false" style="color:#fca5a5" x-cloak>Servizio non raggiungibile</span>
+            <span x-show="ok === null" x-cloak>Verifica stato…</span>
+          </span>
+        </span>
+        <a href="/docs" rel="noopener">API Docs</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/vendor/login.js"
+        integrity="sha256-LBB7UHhrhysz1xeO8hSsaH+LqhJhyN0fdiAza+veeVo="
+        crossorigin="anonymous"
+        nonce="{{ csp_nonce }}"></script>
+{% endblock %}

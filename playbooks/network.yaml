@@ -1,0 +1,37 @@
+scenario: network
+description: |
+  Network/infrastructure playbook for CIDR-scoped engagements. Focus is
+  on host discovery, service mapping, and credential-less protocol
+  enumeration before any exploitation attempt.
+fallback_chain:
+  timeout: ["narrow_scope", "alt_tool_suggestion", "abort"]
+  conn_refused: ["scope_recheck", "alt_tool_suggestion"]
+  auth_failed: ["credential_recheck", "alt_tool_suggestion"]
+phases:
+  reconnaissance:
+    - tool: nmap_scan
+      rationale: "Top-1000 TCP sweep to map live hosts and primary services."
+      parameters:
+        scan_type: "syn"
+        ports: "top-1000"
+      stop_when:
+        - "hosts_enumerated"
+    - tool: dnsrecon
+      rationale: "Reverse DNS + zone transfer attempts on in-scope domains."
+  scanning:
+    - tool: nmap_scan
+      rationale: "Targeted -sV against discovered ports for accurate fingerprints."
+      parameters:
+        scan_type: "service_version"
+    - tool: snmp_enum
+      rationale: "Enumerate community strings on responding UDP/161."
+  exploitation:
+    - tool: brute_force
+      rationale: "Targeted credential spray against authenticated services."
+      parameters:
+        max_attempts: 25
+      stop_when:
+        - "valid_credential"
+  post_exploitation:
+    - tool: archival_insert
+      rationale: "Record host inventory and credentials for the report."

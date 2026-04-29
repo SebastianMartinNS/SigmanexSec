@@ -1,0 +1,6 @@
+# SAP — model integrity manifest (P1.8)
+# Format: <sha256>  <absolute_path>
+# Verified by scripts/verify_model_integrity.sh, called from start_llm.sh.
+# To regenerate after a model swap:
+#   sha256sum /path/to/model.gguf >> models.sha256
+499c2c0a0394da8c0c7c22a93850d75e743579f1320d4d056f1db28c2045aba5  /home/resolutor/Desktop/qwen/Qwen3.5-35B-A3B-heretic.Q4_K_M.gguf

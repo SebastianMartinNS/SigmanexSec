@@ -1,0 +1,33 @@
+scenario: mixed
+description: |
+  Mixed-scope playbook used when the classifier cannot pick a single
+  dominant scenario (e.g., scope contains both URLs and CIDRs). The
+  steps interleave network discovery and web fingerprinting so the agent
+  collects enough evidence to specialize later.
+fallback_chain:
+  timeout: ["narrow_scope", "alt_tool_suggestion", "abort"]
+  auth_failed: ["credential_recheck", "alt_tool_suggestion"]
+  conn_refused: ["scope_recheck", "alt_tool_suggestion"]
+phases:
+  reconnaissance:
+    - tool: nmap_scan
+      rationale: "Map live hosts/services across the CIDR before specializing."
+      parameters:
+        ports: "top-1000"
+    - tool: web_fingerprint
+      rationale: "Fingerprint any HTTP service surfaced by the sweep."
+    - tool: dnsrecon
+      rationale: "Resolve in-scope domains and discover additional endpoints."
+  scanning:
+    - tool: smb_enum
+      rationale: "Probe SMB on responding hosts to detect AD signal early."
+    - tool: dir_fuzz
+      rationale: "Light directory fuzzing on confirmed web services."
+  exploitation:
+    - tool: web_vuln_scan
+      rationale: "Run web vuln scan only on confirmed web targets."
+    - tool: brute_force
+      rationale: "Credential spray against confirmed network services."
+  post_exploitation:
+    - tool: archival_insert
+      rationale: "Snapshot mixed evidence for cross-domain correlation."

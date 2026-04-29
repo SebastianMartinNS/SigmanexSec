@@ -1,0 +1,13 @@
+diff --git a/tools/server/webui/src/lib/types/mcp.d.ts b/tools/server/webui/src/lib/types/mcp.d.ts
+index 2ce2f73..119b9d3 100644
+--- a/tools/server/webui/src/lib/types/mcp.d.ts
++++ b/tools/server/webui/src/lib/types/mcp.d.ts
+@@ -134,6 +134,8 @@ export interface MCPConnection {
+ 	protocolVersion?: string;
+ 	instructions?: string;
+ 	connectionTimeMs: number;
++	/** Per-call request timeout in ms (from server config), used by callTool/listTools etc. */
++	requestTimeoutMs?: number;
+ }
+ 
+ /**

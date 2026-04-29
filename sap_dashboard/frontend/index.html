@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SAP — Security Assessment Platform</title>
+<!-- P3.2 — Vendored & SRI-pinned third-party assets (no CDN). -->
+<link rel="stylesheet" href="/vendor/tailwind.css"
+      integrity="sha256-tbgwfvQnpi0/HoZvJcelN9voaeLfYeYzguyzzC1/1SA="
+      crossorigin="anonymous" />
+<script src="/vendor/htmx.min.js"
+        integrity="sha256-RJMXreeIHpSVENthSZHhlcOgmcTHkcJNrOxV+fSipFI="
+        crossorigin="anonymous"></script>
+<script defer src="/vendor/alpine.min.js"
+        integrity="sha256-+5sUa3+9G78lH7PvRk8ufF0zpKg66w/PIekspqlVjEs="
+        crossorigin="anonymous"></script>
+<script src="/vendor/app.js"></script>
+</head>
+<body class="bg-ink-900 text-slate-100 min-h-screen" x-data="app()">
+
+<!-- Sidebar -->
+<div class="flex">
+  <aside class="w-60 min-h-screen bg-ink-800 ring-1 ring-ink-700 p-4 flex flex-col gap-1">
+    <div class="text-2xl font-bold mb-4">
+      <span class="text-accent-500">SAP</span>
+      <div class="text-xs text-slate-400 font-normal">Security Assessment Platform</div>
+    </div>
+    <template x-for="t in tabs" :key="t.id">
+      <button class="text-left px-3 py-2 rounded-md text-sm hover:bg-ink-700"
+              :class="active === t.id ? 'bg-accent-600 text-white' : ''"
+              @click="active = t.id; load(t.id)" x-text="t.label"></button>
+    </template>
+
+    <div class="mt-auto text-xs text-slate-500 pt-4 border-t border-ink-700">
+      <div>auth: <span x-text="auth.user || 'not set'"></span></div>
+      <div>sudo: <span class="pill" :class="sudo.locked ? 'bg-ink-700 text-slate-400' : 'bg-ok-500/20 text-ok-500'"
+            x-text="sudo.locked ? 'locked' : 'unlocked'"></span>
+        <span x-show="!sudo.locked" class="text-slate-500" x-text="`(${Math.round(sudo.ttl_remaining_seconds)}s)`"></span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 p-8 max-w-[1400px]">
+
+    <!-- Auth bar -->
+    <div x-show="!auth.user" class="card mb-6">
+      <div class="text-lg font-semibold mb-2">Sign in</div>
+      <p class="text-sm text-slate-400 mb-3">Provide the dashboard HTTP Basic credentials configured in <code>config.yaml</code> (or via env vars).</p>
+      <form @submit.prevent="signin()" class="flex gap-2">
+        <input class="bg-ink-700 px-3 py-2 rounded ring-1 ring-ink-600 flex-1" placeholder="username" x-model="form.user" />
+        <input class="bg-ink-700 px-3 py-2 rounded ring-1 ring-ink-600 flex-1" type="password" placeholder="password" x-model="form.pass" />
+        <button class="btn bg-accent-600 ring-accent-500">Sign in</button>
+      </form>
+      <p class="text-xs text-danger-500 mt-2" x-text="error"></p>
+    </div>
+
+    <div x-show="auth.user">
+
+      <!-- ENGAGEMENTS -->
+      <section x-show="active === 'engagements'">
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-2xl font-bold">Engagements</h1>
+          <div class="flex gap-2">
+            <button class="btn" @click="loadEngagements()">Refresh</button>
+            <button class="btn bg-rose-700 hover:bg-rose-600" @click="confirmSystemReset()">Reset Tutto</button>
+          </div>
+        </div>
+        <div class="card">
+          <table class="w-full text-sm">
+            <thead class="text-left text-slate-400 uppercase text-xs">
+              <tr><th class="pb-2">Name</th><th>Client</th><th>Phase</th><th>Status</th><th>Created</th><th class="text-right">Actions</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="e in engagements" :key="e.id">
+                <tr class="border-t border-ink-700 hover:bg-ink-700/40">
+                  <td class="py-2"><span class="font-medium" x-text="e.name"></span><br><span class="text-xs text-slate-500" x-text="e.id"></span></td>
+                  <td x-text="e.client"></td>
+                  <td><span class="pill bg-ink-700" x-text="e.current_phase"></span></td>
+                  <td><span class="pill"
+                            :class="e.status === 'active' ? 'bg-ok-500/20 text-ok-500' : 'bg-ink-700 text-slate-400'"
+                            x-text="e.status"></span></td>
+                  <td class="text-slate-400 text-xs" x-text="e.created_at"></td>
+                  <td class="text-right whitespace-nowrap">
+                    <button class="btn" @click="selectedEngagement = e.id; active = 'agent'">Apri</button>
+                    <button class="btn" @click="exportEngagement(e.id, false)" title="Scarica bundle ZIP (segreti redatti)">Export</button>
+                    <button class="btn" @click="exportEngagement(e.id, true)" title="Bundle ZIP con credenziali in chiaro">Export+secrets</button>
+                    <button class="btn bg-amber-700 hover:bg-amber-600" @click="openResetDialog(e)">Reset</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Reset dialog -->
+        <div x-show="resetDialog.open" x-cloak class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div class="bg-ink-800 border border-ink-700 rounded-lg p-6 w-[520px] max-w-full">
+            <h2 class="text-lg font-bold mb-1">Reset contesto engagement</h2>
+            <p class="text-sm text-slate-400 mb-4">
+              <span x-text="resetDialog.engagement?.name"></span>
+              <span class="text-xs text-slate-500" x-text="resetDialog.engagement?.id"></span>
+            </p>
+            <div class="space-y-2 text-sm">
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="resetDialog.body.wipe_findings"> Cancella findings</label>
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="resetDialog.body.wipe_hosts"> Cancella host & servizi</label>
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="resetDialog.body.wipe_credentials"> Cancella credenziali</label>
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="resetDialog.body.wipe_runs"> Cancella sessioni agent (events.jsonl)</label>
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="resetDialog.body.wipe_audit"> Cancella audit log per questo engagement</label>
+              <label class="flex items-center gap-2 pt-2 border-t border-ink-700"><input type="checkbox" x-model="resetDialog.body.delete_engagement"> <span class="text-rose-400">Elimina engagement (irreversibile)</span></label>
+            </div>
+            <div class="flex justify-end gap-2 mt-5">
+              <button class="btn" @click="resetDialog.open = false">Annulla</button>
+              <button class="btn bg-rose-700 hover:bg-rose-600" @click="executeReset()">Esegui reset</button>
+            </div>
+            <p x-show="resetDialog.result" x-cloak class="text-xs text-emerald-400 mt-3" x-text="resetDialog.result"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- AGENT CONSOLE -->
+      <section x-show="active === 'agent'">
+        <h1 class="text-2xl font-bold mb-4">Agent Console</h1>
+        <div class="card mb-4">
+          <div class="flex items-center gap-3 mb-3">
+            <label class="text-sm">Engagement</label>
+            <select class="bg-ink-700 px-2 py-1 rounded" x-model="selectedEngagement">
+              <option value="">— select —</option>
+              <template x-for="e in engagements" :key="e.id"><option :value="e.id" x-text="`${e.name} (${e.id.slice(0,8)})`"></option></template>
+            </select>
+
+            <label class="text-sm ml-4">Mode</label>
+            <select class="bg-ink-700 px-2 py-1 rounded" x-model="runForm.mode">
+              <option>planning</option><option>execution</option><option>step</option>
+            </select>
+
+            <label class="text-sm ml-4">Max iter</label>
+            <input type="number" class="bg-ink-700 px-2 py-1 rounded w-20" x-model.number="runForm.max_iterations" />
+          </div>
+
+          <textarea class="w-full bg-ink-700 p-3 rounded ring-1 ring-ink-600" rows="3"
+                    placeholder="Objective (e.g. 'Recon and enumerate target.example.com, prioritize web exposure')"
+                    x-model="runForm.objective"></textarea>
+
+          <div class="flex gap-2 mt-3">
+            <button class="btn bg-accent-600 ring-accent-500" @click="startRun()" :disabled="!selectedEngagement || !runForm.objective.trim()">Start</button>
+            <button class="btn" @click="control('pause')" :disabled="!currentRun">Pause</button>
+            <button class="btn" @click="control('resume')" :disabled="!currentRun">Resume</button>
+            <button class="btn" @click="control('kill')" :disabled="!currentRun">Kill</button>
+            <span class="ml-auto text-xs text-slate-400" x-show="currentRun">
+              run <span x-text="currentRun"></span> · <span x-text="runStatus.state || ''"></span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Approval modal -->
+        <div x-show="pendingGate" class="card border border-pink-500/30 mb-4">
+          <div class="text-pink-400 font-semibold mb-2">Approval required</div>
+          <div class="text-sm mb-2"><span class="text-slate-400">reason:</span> <span x-text="pendingGate?.reason"></span></div>
+          <div class="text-xs font-mono bg-ink-900 p-2 rounded mb-3" x-text="pendingGate?.summary"></div>
+          <div class="flex gap-2">
+            <button class="btn bg-ok-500/20 text-ok-500 ring-ok-500" @click="resolveGate('allow')">Allow</button>
+            <button class="btn bg-danger-500/20 text-danger-500 ring-danger-500" @click="resolveGate('deny')">Deny</button>
+          </div>
+        </div>
+
+        <!-- Event stream -->
+        <div class="card font-mono text-xs h-[560px] overflow-y-auto" id="eventlog">
+          <template x-for="ev in events" :key="ev.seq">
+            <div class="mb-2" x-data="{ open: ev.type === 'assistant' || ev.type === 'done' || ev.type === 'tool_call' }">
+              <div>
+                <span class="text-slate-500" x-text="new Date(ev.ts*1000).toLocaleTimeString()"></span>
+                <span :class="`ev-${ev.type}`" x-text="`[${ev.type}]`"></span>
+                <span x-show="ev.type==='tools_loaded'" x-text="`${ev.count} tools from ${(ev.servers||[]).join(', ')}`"></span>
+                <span x-show="ev.type==='approval_required'" x-text="ev.summary"></span>
+                <span x-show="ev.type==='error'" x-text="ev.error"></span>
+                <span x-show="ev.type==='run_started'" x-text="`mode=${ev.mode} obj=${ev.objective}`"></span>
+                <a class="ev-toggle" x-show="(ev.text||ev.final_text||'').length > 200" @click="open = !open" x-text="open ? 'collapse' : 'expand'"></a>
+              </div>
+              <div class="ev-body" :class="{ 'collapsed': !open }"
+                   x-show="ev.text || ev.final_text"
+                   x-text="ev.text || ev.final_text"></div>
+            </div>
+          </template>
+          <div x-show="!events.length" class="text-slate-500">No events yet. Start a run.</div>
+        </div>
+      </section>
+
+      <!-- SUDO -->
+      <section x-show="active === 'sudo'">
+        <h1 class="text-2xl font-bold mb-4">Sudo Vault</h1>
+        <div class="card max-w-md">
+          <div class="text-sm mb-3">
+            Status:
+            <span class="pill" :class="sudo.locked ? 'bg-ink-700 text-slate-400' : 'bg-ok-500/20 text-ok-500'"
+                  x-text="sudo.locked ? 'LOCKED' : 'UNLOCKED'"></span>
+            <template x-if="!sudo.locked">
+              <span class="text-xs text-slate-400 ml-2" x-text="`expires in ${Math.round(sudo.ttl_remaining_seconds)}s`"></span>
+            </template>
+          </div>
+
+          <form @submit.prevent="unlockSudo()" class="flex flex-col gap-2">
+            <div class="flex gap-2 items-center">
+              <input :type="showSudoPw ? 'text' : 'password'"
+                     class="bg-ink-700 px-3 py-2 rounded ring-1 ring-ink-600 flex-1"
+                     placeholder="sudo password" x-model="sudoForm.password"
+                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <button type="button" class="btn text-xs px-2"
+                      @click="showSudoPw = !showSudoPw"
+                      x-text="showSudoPw ? 'hide' : 'show'"></button>
+            </div>
+            <p class="text-xs text-slate-500"
+               x-show="sudoForm.password && (sudoForm.password !== sudoForm.password.trim())"
+               style="color:#fbbf24">⚠ password has leading/trailing whitespace</p>
+            <p class="text-xs text-slate-500"
+               x-show="sudoForm.password"
+               x-text="`length: ${sudoForm.password.length} chars`"></p>
+            <label class="text-xs text-slate-400">TTL seconds (max 900)</label>
+            <input type="number" class="bg-ink-700 px-3 py-2 rounded ring-1 ring-ink-600 w-32"
+                   x-model.number="sudoForm.ttl_seconds" />
+            <div class="flex gap-2 mt-2">
+              <button class="btn bg-accent-600 ring-accent-500">Unlock</button>
+              <button type="button" class="btn" @click="lockSudo()">Lock now</button>
+            </div>
+          </form>
+          <p class="text-xs text-slate-400 mt-3">Password lives in RAM only and never touches disk, MCP traffic, or audit logs.</p>
+          <p class="text-xs text-danger-500 mt-2" x-text="sudoError"></p>
+        </div>
+      </section>
+
+      <!-- PARROT TOOLS -->
+      <section x-show="active === 'parrot'">
+        <h1 class="text-2xl font-bold mb-4">Parrot Tool Catalogue</h1>
+        <div class="card">
+          <div class="flex items-center gap-2 mb-3">
+            <input class="bg-ink-700 px-3 py-1.5 rounded ring-1 ring-ink-600 flex-1" placeholder="filter…" x-model="parrotQ" />
+            <span class="text-xs text-slate-400" x-text="`${parrotFiltered.length} / ${parrot.tools?.length || 0}`"></span>
+          </div>
+          <table class="w-full text-sm">
+            <thead class="text-left text-slate-400 text-xs uppercase">
+              <tr><th>Tool</th><th>Cat</th><th>Sudo</th><th>Avail</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="t in parrotFiltered" :key="t.name">
+                <tr class="border-t border-ink-700">
+                  <td class="py-1.5 font-mono" x-text="t.name"></td>
+                  <td><span class="pill bg-ink-700" x-text="t.category"></span></td>
+                  <td><span class="pill" :class="t.requires_sudo ? 'bg-warn-500/20 text-warn-500' : 'bg-ink-700 text-slate-400'"
+                            x-text="t.requires_sudo ? 'sudo' : '—'"></span></td>
+                  <td><span class="pill" :class="t.available ? 'bg-ok-500/20 text-ok-500' : 'bg-danger-500/20 text-danger-500'"
+                            x-text="t.available ? 'yes' : 'missing'"></span></td>
+                  <td class="text-slate-300 text-xs" x-text="(t.description || '').slice(0, 120)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- AUDIT LIVE -->
+      <section x-show="active === 'audit'">
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-2xl font-bold">Audit Live <span class="text-sm text-slate-400 font-normal">(MCP + agent, qualunque client)</span></h1>
+          <div class="flex items-center gap-2">
+            <span class="text-xs" :class="audit.ws ? 'text-emerald-400' : 'text-slate-500'">
+              <span x-text="audit.ws ? '\u25cf live' : '\u25cb idle'"></span>
+            </span>
+            <input x-model="audit.filter" placeholder="filtra (engagement, tool, host\u2026)"
+                   class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-sm w-72">
+            <button @click="openAuditWs()" class="btn">Reconnect</button>
+          </div>
+        </div>
+        <div id="auditlog" class="card overflow-auto" style="max-height:70vh">
+          <table class="w-full text-xs font-mono">
+            <thead class="sticky top-0 bg-ink-900">
+              <tr class="text-slate-400 text-left">
+                <th class="px-2 py-1">time</th>
+                <th class="px-2 py-1">actor</th>
+                <th class="px-2 py-1">action</th>
+                <th class="px-2 py-1">engagement</th>
+                <th class="px-2 py-1">target</th>
+                <th class="px-2 py-1">details</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="e in auditFiltered()" :key="e.id">
+                <tr class="border-t border-ink-700 align-top">
+                  <td class="px-2 py-1 text-slate-500 whitespace-nowrap" x-text="(e.timestamp||'').replace('T',' ').slice(0,19)"></td>
+                  <td class="px-2 py-1 text-cyan-400" x-text="e.actor"></td>
+                  <td class="px-2 py-1"
+                      :class="{'text-amber-400': e.action==='tool_execute', 'text-emerald-400': e.action==='tool_complete', 'text-rose-400': (e.action||'').includes('error')||(e.action||'').includes('block')}"
+                      x-text="e.action"></td>
+                  <td class="px-2 py-1 text-slate-400" x-text="(e.engagement_id||'').slice(0,8)"></td>
+                  <td class="px-2 py-1 text-slate-300" x-text="e.target"></td>
+                  <td class="px-2 py-1 text-slate-300">
+                    <pre class="whitespace-pre-wrap break-all" x-text="JSON.stringify(e.details||{}, null, 0)"></pre>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="!audit.entries.length">
+                <td colspan="6" class="px-2 py-4 text-center text-slate-500">
+                  Nessuna attivit\u00e0 ancora. Esegui un tool dalla WebUI di llama.cpp o dall'agent\u2026
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SESSIONS (interactive PTY) -->
+      <section x-show="active === 'sessions'">
+        <h1 class="text-2xl font-bold mb-4">Interactive Sessions</h1>
+        <div class="grid grid-cols-3 gap-4">
+          <div class="card col-span-1">
+            <div class="text-sm font-semibold uppercase text-accent-400 mb-2">Spawn</div>
+            <label class="text-xs text-slate-400">Engagement</label>
+            <select class="input" x-model="sessForm.engagement_id">
+              <option value="">-- select --</option>
+              <template x-for="e in engagements" :key="e.id">
+                <option :value="e.id" x-text="`${e.name||e.id} (${e.client||'-'})`"></option>
+              </template>
+            </select>
+            <label class="text-xs text-slate-400 mt-2">Tool</label>
+            <select class="input" x-model="sessForm.tool">
+              <option value="">-- select --</option>
+              <template x-for="t in interactiveTools" :key="t.name">
+                <option :value="t.name" x-text="`${t.name} [${t.category}]`"></option>
+              </template>
+            </select>
+            <label class="text-xs text-slate-400 mt-2">Args (JSON)</label>
+            <textarea class="input font-mono text-xs" rows="4" x-model="sessForm.args_json" placeholder='{"target":"10.0.0.1"}'></textarea>
+            <button class="btn btn-primary mt-3 w-full" @click="startSession()" :disabled="!sessForm.engagement_id || !sessForm.tool">Start session</button>
+            <p x-show="sessError" class="text-xs text-pink-400 mt-2" x-text="sessError"></p>
+          </div>
+
+          <div class="card col-span-2">
+            <div class="flex items-center mb-2">
+              <div class="text-sm font-semibold uppercase text-accent-400">Active sessions</div>
+              <button class="btn btn-secondary ml-auto text-xs" @click="loadSessions()">Refresh</button>
+            </div>
+            <table class="w-full text-xs">
+              <thead><tr class="text-left text-slate-400">
+                <th>id</th><th>tool</th><th>eng</th><th>idle</th><th>alive</th><th></th>
+              </tr></thead>
+              <tbody>
+                <template x-for="s in sessList" :key="s.session_id">
+                  <tr :class="activeSession===s.session_id ? 'bg-slate-800' : ''">
+                    <td class="font-mono"><a class="text-accent-400 cursor-pointer" @click="selectSession(s.session_id)" x-text="s.session_id.slice(0,8)"></a></td>
+                    <td x-text="s.tool"></td>
+                    <td x-text="s.engagement_id"></td>
+                    <td x-text="s.idle_seconds + 's'"></td>
+                    <td x-text="s.alive ? 'yes' : 'no'"></td>
+                    <td><button class="text-pink-400 text-xs" @click="closeSession(s.session_id)">close</button></td>
+                  </tr>
+                </template>
+                <tr x-show="!sessList.length"><td colspan="6" class="text-slate-500 italic py-2">No active sessions.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card mt-4" x-show="activeSession">
+          <div class="text-sm font-semibold uppercase text-accent-400 mb-2">
+            Terminal · <span class="font-mono text-xs" x-text="activeSession"></span>
+          </div>
+          <pre class="bg-black text-emerald-300 text-xs p-3 rounded h-80 overflow-auto whitespace-pre-wrap font-mono" x-text="sessOutput"></pre>
+          <div class="flex mt-2 gap-2">
+            <input class="input flex-1 font-mono text-xs" placeholder="command…" x-model="sessInput" @keydown.enter.prevent="sendSession()">
+            <input class="input w-40 font-mono text-xs" placeholder="expect prompt (opt)" x-model="sessExpect">
+            <button class="btn btn-primary" @click="sendSession()">Send</button>
+            <button class="btn btn-secondary" @click="readSession()">Read</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section x-show="active === 'settings'">
+        <h1 class="text-2xl font-bold mb-4">Runtime Settings</h1>
+        <div class="grid grid-cols-2 gap-4">
+          <template x-for="(v, k) in settings" :key="k">
+            <div class="card">
+              <div class="text-sm font-semibold uppercase text-accent-400 mb-2" x-text="k"></div>
+              <pre class="text-xs whitespace-pre-wrap text-slate-300" x-text="JSON.stringify(v, null, 2)"></pre>
+            </div>
+          </template>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

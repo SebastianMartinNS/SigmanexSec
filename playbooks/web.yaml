@@ -1,0 +1,40 @@
+scenario: web
+description: |
+  Web application playbook — recon -> scanning -> exploitation pipeline
+  optimized for HTTP/HTTPS targets. Steps assume an explicit URL is in
+  scope; out-of-scope hosts must be filtered by scope_validator first.
+fallback_chain:
+  timeout: ["alt_tool_suggestion", "narrow_scope", "abort"]
+  auth_failed: ["credential_recheck", "alt_tool_suggestion"]
+  conn_refused: ["scope_recheck", "alt_tool_suggestion"]
+  rate_limited: ["backoff", "alt_tool_suggestion"]
+phases:
+  reconnaissance:
+    - tool: web_fingerprint
+      rationale: "Identify framework / CMS / WAF before deeper scans."
+      stop_when:
+        - "framework_identified"
+    - tool: dnsrecon
+      rationale: "Enumerate hostnames + subdomains for additional attack surface."
+  scanning:
+    - tool: dir_fuzz
+      rationale: "Discover hidden endpoints (admin, api, backup)."
+      parameters:
+        wordlist: "common"
+    - tool: web_vuln_scan
+      rationale: "Automated nikto/nuclei pass for low-hanging fruit."
+    - tool: waf_detect
+      rationale: "Confirm WAF posture so exploit payloads can adapt."
+  exploitation:
+    - tool: sqli_test
+      rationale: "Test for SQL injection on identified parameters."
+      parameters:
+        level: 1
+        risk: 1
+      stop_when:
+        - "sqli_confirmed"
+    - tool: command_injection_test
+      rationale: "Probe for OS command injection on dynamic params."
+  post_exploitation:
+    - tool: archival_insert
+      rationale: "Persist confirmed evidence into long-term memory for reporting."

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="it" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark light" />
+<title>{% block title %}{{ brand.name }} — {{ brand.tagline }}{% endblock %}</title>
+
+<link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
+<link rel="apple-touch-icon" href="/assets/brand/favicon.svg" />
+
+{# Pre-built Tailwind utility CSS (existing, unchanged). #}
+<link rel="stylesheet" href="/vendor/tailwind.css"
+      integrity="sha256-tbgwfvQnpi0/HoZvJcelN9voaeLfYeYzguyzzC1/1SA="
+      crossorigin="anonymous" />
+{# SigmanexSec design system (brand tokens, components, login, modals). #}
+<link rel="stylesheet" href="/vendor/sap.css"
+      integrity="sha256-SFvTzlgKXGUPvLAPLFlBCaoSt3g0X0sOhUDZ1FZh8d0="
+      crossorigin="anonymous" />
+
+{# Theme bootstrap — runs before paint to avoid flash. External + SRI. #}
+<script src="/vendor/theme-init.js"
+        integrity="sha256-JrClM5RW5qNAzVd5/NWwnC//SYPJ5V89aZDTzdvMubw="
+        crossorigin="anonymous"
+        nonce="{{ csp_nonce }}"></script>
+
+{% block head_extra %}{% endblock %}
+</head>
+<body class="snx-bg-elev1 text-slate-100 min-h-screen">
+
+{# Inline icon sprite (loaded once; <use href="..."> resolves locally) #}
+{% include "partials/_icons.html" ignore missing %}
+
+{% block body %}{% endblock %}
+
+{% block scripts %}
+<script src="/vendor/htmx.min.js"
+        integrity="sha256-RJMXreeIHpSVENthSZHhlcOgmcTHkcJNrOxV+fSipFI="
+        crossorigin="anonymous"
+        nonce="{{ csp_nonce }}"></script>
+<script defer src="/vendor/alpine.min.js"
+        integrity="sha256-+5sUa3+9G78lH7PvRk8ufF0zpKg66w/PIekspqlVjEs="
+        crossorigin="anonymous"
+        nonce="{{ csp_nonce }}"></script>
+<script src="/vendor/sap.js"
+        integrity="sha256-yOYrxmHDI0bjkucVj6lQ1beqpwQIpRXvE2KGrpM/12U="
+        crossorigin="anonymous"
+        nonce="{{ csp_nonce }}"></script>
+{% endblock %}
+</body>
+</html>

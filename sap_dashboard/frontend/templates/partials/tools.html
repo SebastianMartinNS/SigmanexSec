@@ -1,0 +1,45 @@
+{# Parrot Tools #}
+<section x-show="active === 'parrot'" x-cloak>
+  <div class="flex items-end justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Parrot Tool Catalogue</h1>
+      <p class="text-sm text-slate-400 mt-1">Strumenti dichiarati nei catalog MCP, con stato di disponibilità e privilegi.</p>
+    </div>
+    <span class="snx-pill snx-pill--brand"
+          x-text="`${parrotFiltered.length} / ${parrot.tools?.length || 0}`"></span>
+  </div>
+
+  <div class="snx-surface p-4 mb-3">
+    <div class="snx-field--icon">
+      <svg class="icon icon-left" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-search"/></svg>
+      <input class="snx-input snx-input--with-icon" placeholder="cerca per nome, categoria o descrizione…" x-model="parrotQ" />
+    </div>
+  </div>
+
+  <div class="snx-surface p-2">
+    <table class="snx-table">
+      <thead>
+        <tr><th>Tool</th><th>Cat</th><th>Sudo</th><th>Disponibile</th><th>Descrizione</th></tr>
+      </thead>
+      <tbody>
+        <template x-for="t in parrotFiltered" :key="t.name">
+          <tr>
+            <td class="snx-mono" x-text="t.name"></td>
+            <td><span class="snx-pill" x-text="t.category"></span></td>
+            <td><span class="snx-pill" :class="t.requires_sudo ? 'snx-pill--warn' : ''"
+                      x-text="t.requires_sudo ? 'sudo' : '—'"></span></td>
+            <td><span class="snx-pill" :class="t.available ? 'snx-pill--ok' : 'snx-pill--danger'"
+                      x-text="t.available ? 'sì' : 'manca'"></span></td>
+            <td class="text-slate-300 text-xs" x-text="(t.description || '').slice(0, 140)"></td>
+          </tr>
+        </template>
+        <tr x-show="!parrotFiltered.length">
+          <td colspan="5" class="snx-empty">
+            <svg class="icon"><use href="/assets/brand/icons.svg#icon-tools"/></svg>
+            <div>Nessun tool corrisponde al filtro.</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>

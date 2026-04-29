@@ -1,0 +1,38 @@
+scenario: ad
+description: |
+  Active Directory playbook. Drives the engagement through unauth AD
+  enumeration, kerberos/credential attacks, and lateral movement. Every
+  privileged step is gated by scope + approval (STEP mode strongly
+  recommended).
+fallback_chain:
+  timeout: ["narrow_scope", "alt_tool_suggestion", "abort"]
+  auth_failed: ["credential_recheck", "asreproast", "alt_tool_suggestion"]
+  conn_refused: ["scope_recheck", "alt_tool_suggestion"]
+  permission_denied: ["alt_tool_suggestion", "abort"]
+phases:
+  reconnaissance:
+    - tool: nmap_scan
+      rationale: "Identify DC candidates (88/389/445/636) and DNS servers."
+      parameters:
+        ports: "53,88,135,139,389,445,464,593,636,3268,3269,5985,5986"
+    - tool: smb_enum
+      rationale: "Anonymous SMB share / OS / null-session enumeration."
+      stop_when:
+        - "domain_identified"
+  scanning:
+    - tool: netexec_run
+      rationale: "Sweep SMB hosts for SMB-signing, null-session, guest access."
+      parameters:
+        protocol: "smb"
+    - tool: asreproast
+      rationale: "Enumerate users with DONT_REQUIRE_PREAUTH for offline cracking."
+  exploitation:
+    - tool: kerberoast
+      rationale: "Request SPN tickets for offline cracking."
+    - tool: secrets_dump
+      rationale: "Dump SAM/LSA/NTDS once admin foothold is established."
+      stop_when:
+        - "ntds_extracted"
+  post_exploitation:
+    - tool: archival_insert
+      rationale: "Persist credentials, tickets and lateral-movement paths."

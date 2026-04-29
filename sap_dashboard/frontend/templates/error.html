@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} · {{ brand.name }}{% endblock %}
+{% block body %}
+<main class="snx-login" role="main">
+  <section class="snx-login__panel" style="grid-column: 1 / -1;">
+    <div class="snx-glass snx-modal" style="max-width: 540px; text-align:center;">
+      <div class="text-6xl font-extrabold snx-text-gradient mb-2">{{ code }}</div>
+      <h2 style="margin-bottom:.5rem">{{ title }}</h2>
+      <p>{{ message }}</p>
+      <a class="snx-btn snx-btn--primary snx-btn--block" href="/" style="margin-top:1rem">
+        <svg class="icon"><use href="/assets/brand/icons.svg#icon-arrow-right"/></svg> Torna al dashboard
+      </a>
+    </div>
+  </section>
+</main>
+{% endblock %}

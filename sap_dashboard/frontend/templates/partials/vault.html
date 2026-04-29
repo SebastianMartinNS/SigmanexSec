@@ -1,0 +1,60 @@
+{# Sudo Vault #}
+<section x-show="active === 'sudo'" x-cloak>
+  <div class="mb-5">
+    <h1 class="text-2xl font-bold tracking-tight">Sudo Vault</h1>
+    <p class="text-sm text-slate-400 mt-1">Sblocco temporaneo per i tool che richiedono privilegi elevati. La password resta in RAM.</p>
+  </div>
+
+  <div class="snx-surface p-6 max-w-md">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="snx-btn snx-btn--icon" :class="sudo.locked ? '' : 'snx-btn--primary'" aria-hidden="true">
+        <svg class="icon"><use :href="sudo.locked ? '/assets/brand/icons.svg#icon-lock' : '/assets/brand/icons.svg#icon-unlock'"/></svg>
+      </span>
+      <div>
+        <div class="text-sm">Stato:
+          <span class="snx-pill" :class="sudo.locked ? '' : 'snx-pill--ok'" x-text="sudo.locked ? 'BLOCCATO' : 'SBLOCCATO'"></span>
+        </div>
+        <template x-if="!sudo.locked">
+          <div class="text-xs text-slate-400 mt-1" x-text="`scade tra ${Math.round(sudo.ttl_remaining_seconds)}s`"></div>
+        </template>
+      </div>
+    </div>
+
+    <form @submit.prevent="unlockSudo()" class="space-y-3">
+      <div class="snx-field snx-field--icon">
+        <label>Password sudo</label>
+        <svg class="icon icon-left" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-lock"/></svg>
+        <input :type="showSudoPw ? 'text' : 'password'"
+               class="snx-input snx-input--with-icon"
+               placeholder="••••••••" x-model="sudoForm.password"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        <button type="button" class="icon-right" @click="showSudoPw = !showSudoPw"
+                :aria-label="showSudoPw ? 'Nascondi' : 'Mostra'">
+          <svg class="icon" x-show="!showSudoPw" aria-hidden="true"><use href="/assets/brand/icons.svg#icon-eye"/></svg>
+          <svg class="icon" x-show="showSudoPw" x-cloak aria-hidden="true"><use href="/assets/brand/icons.svg#icon-eye-off"/></svg>
+        </button>
+      </div>
+      <p class="text-xs text-amber-400" x-show="sudoForm.password && (sudoForm.password !== sudoForm.password.trim())">
+        ⚠ password con spazi all'inizio o alla fine
+      </p>
+      <p class="text-xs text-slate-500" x-show="sudoForm.password" x-text="`length: ${sudoForm.password.length} chars`"></p>
+
+      <div class="snx-field">
+        <label>TTL secondi (max 900)</label>
+        <input type="number" class="snx-input" style="width:9rem" x-model.number="sudoForm.ttl_seconds" />
+      </div>
+
+      <div class="flex gap-2 pt-1">
+        <button class="snx-btn snx-btn--primary">
+          <svg class="icon"><use href="/assets/brand/icons.svg#icon-unlock"/></svg> Sblocca
+        </button>
+        <button type="button" class="snx-btn snx-btn--ghost" @click="lockSudo()">
+          <svg class="icon"><use href="/assets/brand/icons.svg#icon-lock"/></svg> Blocca
+        </button>
+      </div>
+    </form>
+
+    <p class="text-xs text-slate-500 mt-4">La password vive solo in RAM e non transita su disco, MCP o audit log.</p>
+    <p class="text-xs text-rose-400 mt-2" x-text="sudoError"></p>
+  </div>
+</section>

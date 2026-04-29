@@ -1,0 +1,16 @@
+diff --git a/tools/server/webui/src/lib/stores/mcp.svelte.ts b/tools/server/webui/src/lib/stores/mcp.svelte.ts
+index f87789d..9f6d375 100644
+--- a/tools/server/webui/src/lib/stores/mcp.svelte.ts
++++ b/tools/server/webui/src/lib/stores/mcp.svelte.ts
+@@ -706,7 +706,10 @@ class MCPStore {
+ 
+ 			const override = perChatOverrides.find((o) => o.serverId === server.id);
+ 
+-			return override?.enabled ?? false;
++			// Default to enabled when no per-chat override exists, so newly created
++			// chats automatically use all globally-enabled servers without requiring
++			// the user to toggle them on in every new conversation.
++			return override?.enabled ?? true;
+ 		});
+ 	}
+ 
