@@ -67,10 +67,10 @@ This file mirrors that log in the standard format expected by GitHub.
   `parrot_tool_describe` / `parrot_session_*`.
 - **Section 20 — Agent Run Modes**: Planning Mode vs Execution Mode,
   plus Step Mode with human-in-the-loop approvals.
-- Hardening tracks P0–P5: dashboard auth (Argon2id, sliding session,
-  CSRF), rate limiter, RBAC, audit hash chain (BLAKE2b), audit external
-  sink, CSP nonce, vendored assets with SRI, podman / systemd
-  hardening, process hardening (mlockall, MDWE).
+- Hardening tracks P0–P5: dashboard auth (constant-time credential
+  check, sliding session, CSRF), rate limiter, RBAC, audit hash chain
+  (BLAKE2b), audit external sink, CSP nonce, vendored assets with SRI,
+  podman / systemd hardening, process hardening (mlockall, MDWE).
 
 ## [1.0.0] — 2026-04-24
 

@@ -24,7 +24,7 @@ backported only to release tags created in the last 90 days.
 
 | Asset                          | Threat                                  | Control                                                |
 |--------------------------------|-----------------------------------------|--------------------------------------------------------|
-| Operator credentials           | Phishing, brute-force                   | Argon2id hash, rate limiter, lockout, CSRF, HttpOnly   |
+| Operator credentials           | Phishing, brute-force                   | Constant-time compare, rate limiter, lockout, CSRF, HttpOnly |
 | Session tokens                 | Theft via XSS / sniffing                | itsdangerous-signed, Secure+HttpOnly, TLS, CSP+TT     |
 | Engagement data                | Tamper, exfiltration                    | RBAC, BLAKE2b audit chain, append-only sink           |
 | Sudo broker                    | Privilege escalation                    | UNIX socket only, peer-uid check, audit, no NNP-relax |
@@ -46,11 +46,24 @@ backported only to release tags created in the last 90 days.
 
 ## Cryptographic primitives
 
-* Password hashing: Argon2id (m=64MiB, t=3, p=4).
-* Session token: HMAC-SHA256 via itsdangerous, 32-byte secret rotated on
-  rotation event.
-* Audit chain: BLAKE2b-256.
-* TLS: 1.2+ ciphers per Mozilla "intermediate" profile; HSTS preload.
+* Operator credential check: constant-time comparison
+  (`secrets.compare_digest`) against the values held in process memory
+  by `sap_dashboard/backend/rbac.py`. Credentials are supplied through
+  environment variables (`SAP_DASHBOARD_USER` / `SAP_DASHBOARD_PASS`,
+  or the `SAP_DASHBOARD_USERS` JSON directory). The platform does
+  not hash or persist them; protecting `.env` (mode `0600`, owned by
+  the runtime user) is therefore part of the operator's deployment
+  responsibility. A future release will add Argon2id at-rest hashing.
+* Session token: HMAC-SHA256 via `itsdangerous.TimestampSigner`,
+  signed with `SAP_SESSION_SECRET` (≥ 32 bytes, generated via
+  `secrets.token_urlsafe(48)`). Idle TTL 1800 s, absolute TTL 28 800 s.
+* CSRF token: 32-byte URL-safe random, double-submit cookie validated
+  in constant time on every state-changing request.
+* Audit chain: BLAKE2b-256 over the canonical JSON of each event,
+  linked to the previous digest stored in `logs/audit.jsonl.head`.
+* TLS: 1.2+ ciphers per Mozilla "intermediate" profile; HSTS preload
+  emitted automatically when the dashboard is served behind a TLS
+  proxy.
 
 ## Out of scope
 

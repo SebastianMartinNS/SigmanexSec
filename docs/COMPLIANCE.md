@@ -24,7 +24,7 @@ reference auditors and SecOps share when scoping audits.
 |------------------------------------------|------------------------------------------------------------|--------------------------------------------------------|
 | A.5.15 access control                    | RBAC (operator/auditor/admin) + UI gating                  | `sap_dashboard/backend/rbac.py`                        |
 | A.5.16 identity management               | Single operator identity, hashed credential, lockout       | `sap_dashboard/backend/auth.py`                        |
-| A.5.17 authentication information        | Argon2id, sliding session, CSRF                            | `sap_dashboard/backend/auth.py`                        |
+| A.5.17 authentication information        | Constant-time credential check, sliding session, CSRF      | `sap_dashboard/backend/rbac.py`                        |
 | A.8.2 privileged access rights           | Sudo broker over UNIX socket, peer-uid check               | `core/sudo_broker.py`                                  |
 | A.8.5 secure authentication              | HttpOnly+Secure+SameSite=Strict cookie                     | `sap_dashboard/backend/app.py`                         |
 | A.8.7 protection against malware         | Read-only rootfs, MDWE, `cap_drop=ALL`                     | `deploy/podman/*.container`, `deploy/systemd/*`        |
@@ -32,7 +32,7 @@ reference auditors and SecOps share when scoping audits.
 | A.8.15 logging                           | BLAKE2b chain + external sink                              | `core/audit_log.py`, `core/audit_sink.py`              |
 | A.8.16 monitoring activities             | CSP report-only, syslog sink                               | `sap_dashboard/backend/app.py`                         |
 | A.8.23 web filtering                     | CSP nonce, no inline scripts                               | `sap_dashboard/frontend/index.html`                    |
-| A.8.24 use of cryptography               | TLS 1.2+, BLAKE2b, Argon2id                                | `docs/SECURITY.md`                                     |
+| A.8.24 use of cryptography               | TLS 1.2+, BLAKE2b-256 audit chain, HMAC-SHA256 sessions    | `docs/SECURITY.md`                                     |
 | A.8.28 secure coding                     | Pinned deps, hash-locked, signed commits                   | `requirements.lock`, CI                                |
 
 ## SOC 2 — Trust Services Criteria
