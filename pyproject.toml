@@ -231,6 +231,25 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106", "S311"]
 
+# ── bandit ────────────────────────────────────────────────────────────────────
+# bandit IDs (B*) are the security-static-analyser equivalent of the ruff S*
+# rules; the noqa pragmas in the codebase silence ruff but not bandit, so we
+# centralise the project-wide patterns here. Per-test categories:
+#
+#   B108 — hardcoded_tmp_directory. The XDG_RUNTIME_DIR + /tmp fallback used
+#          by core/sudo_broker, core/sandbox spill paths, and the health probe
+#          is a documented project convention.
+#   B608 — hardcoded_sql_expressions. Every f-string SQL site builds queries
+#          from internally-validated column-name fragments ("run_id = ?",
+#          "AND role=?", placeholders="?,?,?"); user data is always passed
+#          through the ? parameter substitution, never interpolated.
+#
+# bandit.json reports are still uploaded as a CI artefact so future findings
+# are visible even when an ID is on this skip list.
+[tool.bandit]
+exclude_dirs = ["llama.cpp", "build", "sap_dashboard/frontend", "tests"]
+skips = ["B108", "B608"]
+
 # ── mypy ──────────────────────────────────────────────────────────────────────
 # Strict by default for the security-critical surface; modules that have not
 # yet been audited use targeted overrides so we can ratchet up coverage one

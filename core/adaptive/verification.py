@@ -71,7 +71,11 @@ def build_manifest(finding: Finding) -> FindingManifest:
     blob = "|".join(f"{k}={v}" for k, v in parts.items())
     # sha1 here generates a deterministic short id for finding deduplication;
     # not a security primitive — collision attacks are out of scope.
-    digest = hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]  # noqa: S324
+    # ``usedforsecurity=False`` makes the intent explicit and silences both
+    # ruff (S324) and bandit (B324).
+    digest = hashlib.sha1(  # noqa: S324
+        blob.encode("utf-8"), usedforsecurity=False,
+    ).hexdigest()[:16]
     return FindingManifest(finding_id=finding.id, digest=digest, components=parts)
 
 

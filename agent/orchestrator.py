@@ -486,8 +486,12 @@ class Orchestrator:
             payload = repr(args)
         # sha1 is used here as a non-cryptographic content hash for the fuzzy
         # repetition detector (RepetitionHandler); collision attacks are
-        # not in this code path's threat model.
-        return hashlib.sha1(f"{name}|{payload}".encode()).hexdigest()  # noqa: S324
+        # not in this code path's threat model. ``usedforsecurity=False``
+        # documents the intent and silences both ruff (S324) and bandit (B324).
+        return hashlib.sha1(  # noqa: S324
+            f"{name}|{payload}".encode(),
+            usedforsecurity=False,
+        ).hexdigest()
 
     # Keys whose CSV values should be tokenised individually so that
     # ``severity="critical,high"`` and ``severity="critical,high,medium"``

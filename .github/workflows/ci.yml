@@ -81,8 +81,8 @@ jobs:
       - name: bandit (HIGH + MEDIUM severity)
         run: |
           bandit -ll -ii \
+            -c pyproject.toml \
             -r core sap_dashboard agent mcp_servers \
-            --exclude llama.cpp,build,sap_dashboard/frontend \
             -f json -o bandit.json
       - name: Upload bandit report
         if: always()
@@ -128,7 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy filesystem scan (vulnerabilities + secrets + misconfig)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: fs
           scan-ref: .
