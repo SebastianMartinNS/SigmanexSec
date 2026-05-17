@@ -103,8 +103,12 @@ def _patch_exe_run(monkeypatch, stdout: str, returncode: int = 0):
 
     The fake honors the scope/identity gate by replicating the check that
     the real ``ToolExecutor.run`` performs — otherwise out-of-scope tests
-    would silently succeed. We also bypass the binary allowlist.
+    would silently succeed. We also bypass the binary allowlist AND the
+    server-side `_require_binary` check (the latter via the bypass env
+    var the production code already exposes) so the tests run on CI
+    runners that do not ship sherlock/holehe/h8mail/maigret.
     """
+    monkeypatch.setenv("SAP_OSINT_SKIP_BINARY_CHECK", "1")
     from mcp_servers import osint_server as srv
 
     async def fake_run(self, *args, **kwargs):
