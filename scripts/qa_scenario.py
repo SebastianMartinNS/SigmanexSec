@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import gzip
 import http.server
 import os
 import socket
@@ -33,7 +32,6 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import timedelta
 from pathlib import Path
 
 # Ensure repo root on path
@@ -63,8 +61,6 @@ from core.tool_output_store import (  # noqa: E402
     get_tool_output_store,
     reset_tool_output_store,
 )
-from core.time_utils import utcnow as _sap_utcnow  # noqa: E402
-
 
 # ── Console helpers ─────────────────────────────────────────────────────────
 GREEN = "\033[92m"

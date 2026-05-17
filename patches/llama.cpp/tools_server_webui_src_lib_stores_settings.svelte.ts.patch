@@ -1,8 +1,8 @@
 diff --git a/tools/server/webui/src/lib/stores/settings.svelte.ts b/tools/server/webui/src/lib/stores/settings.svelte.ts
-index 8ab817c..5179035 100644
+index 8ab817c07..eee09f655 100644
 --- a/tools/server/webui/src/lib/stores/settings.svelte.ts
 +++ b/tools/server/webui/src/lib/stores/settings.svelte.ts
-@@ -116,6 +116,39 @@ class SettingsStore {
+@@ -116,6 +116,49 @@ class SettingsStore {
  			const storedConfigRaw = localStorage.getItem(CONFIG_LOCALSTORAGE_KEY);
  			const savedVal = JSON.parse(storedConfigRaw || '{}');
  
@@ -37,6 +37,16 @@ index 8ab817c..5179035 100644
 +			if (needsMigration) {
 +				savedVal.mcpServers = SETTING_CONFIG_DEFAULT.mcpServers;
 +				console.log('[Settings] migrated mcpServers to bundled SAP defaults');
++			}
++
++			// SAP migration: previous WebUI builds shipped systemMessage=''
++			// which makes the model behave as a generic assistant. If the
++			// user never customised it (or left it empty), inject the
++			// bundled CEH/OSCP default. We treat the value as
++			// "user-customised" only when it is non-empty.
++			if (typeof savedVal.systemMessage !== 'string' || savedVal.systemMessage.trim() === '') {
++				savedVal.systemMessage = SETTING_CONFIG_DEFAULT.systemMessage;
++				console.log('[Settings] applied bundled SAP system prompt');
 +			}
 +
  			// Merge with defaults to prevent breaking changes

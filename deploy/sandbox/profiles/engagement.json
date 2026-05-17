@@ -1,0 +1,19 @@
+{
+  "$schema": "./profile.schema.json",
+  "name": "engagement",
+  "description": "Engagement-management meta tools (create_engagement, add_finding, add_credential, session_state). These do not exec external binaries — they only mutate the SessionStore via in-process calls. The profile is here for completeness so the executor can be invoked uniformly; in practice the executor short-circuits engagement-only flows before reaching subprocess.",
+  "bind_ro": ["/usr", "/etc", "/lib", "/lib64", "/bin", "/sbin"],
+  "workdir_template": "/tmp/sap-{run_id}/engagement",
+  "workdir_mount": "/work",
+  "tmpfs": ["/tmp", "/var/tmp"],
+  "dev": true,
+  "proc": true,
+  "as_pid_1": true,
+  "unshare_user": true,
+  "unshare_pid": true,
+  "unshare_ipc": true,
+  "unshare_uts": true,
+  "network_policy": "none",
+  "caps_drop": ["ALL"],
+  "caps_keep": []
+}

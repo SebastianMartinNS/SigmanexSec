@@ -1,8 +1,6 @@
 """Unit tests for core/adaptive/confidence.py."""
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from core.adaptive.confidence import score_finding, score_from_execution

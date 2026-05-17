@@ -9,6 +9,7 @@ fallback_chain:
   auth_failed: ["credential_recheck", "asreproast", "alt_tool_suggestion"]
   conn_refused: ["scope_recheck", "alt_tool_suggestion"]
   permission_denied: ["alt_tool_suggestion", "abort"]
+  empty_output: ["alt_tool_suggestion", "scope_recheck", "abort"]
 phases:
   reconnaissance:
     - tool: nmap_scan

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -18,8 +17,14 @@ from core.adaptive import compute_kpi_report, iter_audit_rows
 from core.session_store import SessionStore
 
 from ..deps import REPO_ROOT, require_auth
+from ..rbac import ROLE_VIEWER, require_role
 
-router = APIRouter(prefix="/api/kpi", tags=["kpi"])
+router = APIRouter(
+    prefix="/api/kpi",
+    tags=["kpi"],
+    # KPI dashboards are read-only data; any authenticated viewer can read them.
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 
 def _audit_path() -> Path:

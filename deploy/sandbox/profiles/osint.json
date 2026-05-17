@@ -1,0 +1,19 @@
+{
+  "$schema": "./profile.schema.json",
+  "name": "osint",
+  "description": "Identity OSINT (sherlock, maigret, holehe, h8mail, whatsmyname, social_analyzer, ghunt, recon_ng, spiderfoot). Same isolation as recon — RO root, ephemeral /work — but network egress is conceptually restricted to the operator's identity-target domains. v2.3 leaves wire filtering to the host firewall; v2.4 will introduce per-tool domain allowlists.",
+  "bind_ro": ["/usr", "/etc", "/lib", "/lib64", "/bin", "/sbin"],
+  "workdir_template": "/tmp/sap-{run_id}/osint",
+  "workdir_mount": "/work",
+  "tmpfs": ["/tmp", "/var/tmp"],
+  "dev": true,
+  "proc": true,
+  "as_pid_1": true,
+  "unshare_user": true,
+  "unshare_pid": true,
+  "unshare_ipc": true,
+  "unshare_uts": true,
+  "network_policy": "domain_allowlist",
+  "caps_drop": ["ALL"],
+  "caps_keep": []
+}

@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import asyncio
-import gzip
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import aiosqlite
@@ -14,9 +13,9 @@ from core.executor import ToolExecutor
 from core.models import Phase
 from core.time_utils import utcnow as _sap_utcnow
 from core.tool_output_store import (
-    get_tool_output_store, reset_tool_output_store,
+    get_tool_output_store,
+    reset_tool_output_store,
 )
-
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -39,7 +38,7 @@ def _isolate_store(tmp_paths):
 async def test_persisted_stdout_matches_subprocess_byte_for_byte(monkeypatch, tmp_paths):
     """Capture a known printf payload through executor and verify on-disk bytes match exactly."""
     _allow(monkeypatch, "printf")
-    expected = "BEGIN\n" + ("LINE_%05d\n" % 0) + ("X" * 4096) + "\nEND\n"
+    expected = "BEGIN\n" + f"LINE_{0:05d}\n" + ("X" * 4096) + "\nEND\n"
     payload = expected.replace("\\", "\\\\").replace("%", "%%")  # printf-safe
 
     exe = ToolExecutor(run_id="run_e2e_1")

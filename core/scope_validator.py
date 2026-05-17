@@ -11,9 +11,9 @@ import ipaddress
 import os
 import re
 import socket
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from enum import Enum
-from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from enum import StrEnum
 
 
 # DNS resolution guards ---------------------------------------------------
@@ -50,7 +50,7 @@ class ScopeViolation(Exception):
     """Raised when a target is outside the authorized engagement scope."""
 
 
-class IdentityKind(str, Enum):
+class IdentityKind(StrEnum):
     """Kinds of identity targets supported by the OSINT scope path."""
     EMAIL = "email"
     USERNAME = "username"
@@ -69,15 +69,15 @@ class ScopeValidator:
 
     def __init__(
         self,
-        cidrs: Optional[list[str]] = None,
-        domains: Optional[list[str]] = None,
-        urls: Optional[list[str]] = None,
+        cidrs: list[str] | None = None,
+        domains: list[str] | None = None,
+        urls: list[str] | None = None,
         engagement_id: str = "",
         *,
-        emails: Optional[list[str]] = None,
-        usernames: Optional[list[str]] = None,
-        persons: Optional[list[str]] = None,
-        social_handles: Optional[list[str]] = None,
+        emails: list[str] | None = None,
+        usernames: list[str] | None = None,
+        persons: list[str] | None = None,
+        social_handles: list[str] | None = None,
     ):
         self._cidrs: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
         self._domains: list[str] = []

@@ -28,12 +28,11 @@ import json
 import logging
 import os
 import shutil
-import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import aiosqlite
 
@@ -125,9 +124,9 @@ class ToolOutputStore:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
+        db_path: str | None = None,
         *,
-        sessions_root: Optional[Path] = None,
+        sessions_root: Path | None = None,
         gzip_threshold_bytes: int = _GZIP_THRESHOLD_BYTES,
     ):
         self._db_path = str(db_path) if db_path else str(assessments_db_path())
@@ -175,7 +174,7 @@ class ToolOutputStore:
     def new_call_id() -> str:
         return f"call_{uuid.uuid4().hex[:16]}"
 
-    def allocate(self, run_id: str, call_id: Optional[str] = None) -> tuple[str, Path]:
+    def allocate(self, run_id: str, call_id: str | None = None) -> tuple[str, Path]:
         """Pre-allocate a call_id and create its artifacts directory.
 
         Used when a tool needs to write structured output to a known location
@@ -203,10 +202,10 @@ class ToolOutputStore:
         target: str = "",
         phase: str = "",
         truncated_in_memory: bool = False,
-        started_at: Optional[str] = None,
-        ended_at: Optional[str] = None,
-        call_id: Optional[str] = None,
-        meta_extra: Optional[dict[str, Any]] = None,
+        started_at: str | None = None,
+        ended_at: str | None = None,
+        call_id: str | None = None,
+        meta_extra: dict[str, Any] | None = None,
     ) -> ToolOutputRef:
         """Persist a tool output. Returns the canonical reference.
 
@@ -330,10 +329,10 @@ class ToolOutputStore:
         call_id: str,
         kind: str = "stdout",
         *,
-        head: Optional[int] = None,
-        tail: Optional[int] = None,
-        offset: Optional[int] = None,
-        length: Optional[int] = None,
+        head: int | None = None,
+        tail: int | None = None,
+        offset: int | None = None,
+        length: int | None = None,
     ) -> bytes:
         """Read bytes from a stored output.
 
@@ -347,7 +346,8 @@ class ToolOutputStore:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT {kind}_path AS p, {kind}_compressed AS c, {kind}_bytes AS n "
+                # noqa: S608 — `kind` is validated to {"stdout","stderr"} before reaching here
+                f"SELECT {kind}_path AS p, {kind}_compressed AS c, {kind}_bytes AS n "  # noqa: S608
                 f"FROM tool_outputs WHERE call_id = ?",
                 (call_id,),
             ) as cur:
@@ -368,10 +368,10 @@ class ToolOutputStore:
         path: Path,
         compressed: bool,
         total: int,
-        head: Optional[int],
-        tail: Optional[int],
-        offset: Optional[int],
-        length: Optional[int],
+        head: int | None,
+        tail: int | None,
+        offset: int | None,
+        length: int | None,
     ) -> bytes:
         if not path.exists():
             return b""
@@ -404,7 +404,7 @@ class ToolOutputStore:
         with opener() as f:
             return f.read()
 
-    async def get(self, call_id: str) -> Optional[ToolOutputRef]:
+    async def get(self, call_id: str) -> ToolOutputRef | None:
         await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -417,9 +417,9 @@ class ToolOutputStore:
     async def list(
         self,
         *,
-        run_id: Optional[str] = None,
-        engagement_id: Optional[str] = None,
-        tool: Optional[str] = None,
+        run_id: str | None = None,
+        engagement_id: str | None = None,
+        tool: str | None = None,
         limit: int = 200,
         offset: int = 0,
     ) -> list[ToolOutputRef]:
@@ -427,15 +427,19 @@ class ToolOutputStore:
         clauses: list[str] = []
         params: list[Any] = []
         if run_id is not None:
-            clauses.append("run_id = ?"); params.append(run_id)
+            clauses.append("run_id = ?")
+            params.append(run_id)
         if engagement_id is not None:
-            clauses.append("engagement_id = ?"); params.append(engagement_id)
+            clauses.append("engagement_id = ?")
+            params.append(engagement_id)
         if tool is not None:
-            clauses.append("tool = ?"); params.append(tool)
+            clauses.append("tool = ?")
+            params.append(tool)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        # noqa: S608 — `clauses` are internal hardcoded templates ("run_id = ?" etc.)
         sql = (
-            "SELECT * FROM tool_outputs" + where +
-            " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            "SELECT * FROM tool_outputs" + where  # noqa: S608
+            + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         )
         params.extend([int(limit), int(offset)])
         async with aiosqlite.connect(self._db_path) as db:
@@ -482,8 +486,8 @@ class ToolOutputStore:
         self,
         *,
         retention_days: int = _DEFAULT_RETENTION_DAYS,
-        keep_engagement_ids: Optional[set[str]] = None,
-        now: Optional[datetime] = None,
+        keep_engagement_ids: set[str] | None = None,
+        now: datetime | None = None,
         dry_run: bool = False,
     ) -> dict[str, int]:
         """Delete tool_outputs older than ``retention_days``.
@@ -539,7 +543,7 @@ class ToolOutputStore:
 # Module-level singleton
 # ─────────────────────────────────────────────
 
-_STORE: Optional[ToolOutputStore] = None
+_STORE: ToolOutputStore | None = None
 
 
 def get_tool_output_store() -> ToolOutputStore:

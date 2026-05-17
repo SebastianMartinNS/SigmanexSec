@@ -24,18 +24,18 @@ import os
 import sys
 import uuid
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from agent.run_modes import RunMode, Plan
+from agent.run_modes import Plan, RunMode
 from core.approval_gate import ApprovalGate, AutoApproveGate
 from core.llm_io_sanitizer import sanitize_tool_output
-from core.memory import MemoryManager, BUILTIN_TOOL_NAMES, builtin_tool_specs
+from core.memory import MemoryManager, builtin_tool_specs
 from core.memory.tools import dispatch_builtin_tool
 
 _MEMORY_ENABLED = os.environ.get("SAP_MEMORY_ENABLED", "1").lower() not in ("0", "false", "no", "off")
@@ -90,6 +90,25 @@ _TOOL_LOOP_LIMIT = int(os.environ.get("SAP_TOOL_LOOP_LIMIT", "3"))
 # inference (e.g. context-window blow-up around iter 5-6) freezes the whole
 # event loop and the run appears "stuck after tool result". Default 240s.
 _LLM_REQUEST_TIMEOUT = float(os.environ.get("SAP_LLM_REQUEST_TIMEOUT", "240"))
+
+# Pre-flight prompt-token budget (defence-in-depth — see plan 2026-04-30).
+# llama-server's n_ctx_slot is 200 704 by default; staying safely below
+# leaves room for the model's own output tokens and tool schemas.
+_PROMPT_TOKEN_BUDGET = int(
+    os.environ.get(
+        "SAP_PROMPT_TOKEN_BUDGET",
+        str(_ORCH_CFG.get("agent", {}).get("prompt_token_budget", 170_000)),
+    )
+)
+# Soft warning threshold (tokens). Above this we emit a token_budget event
+# every iteration so the dashboard shows the trend before we hit the hard
+# budget. 0 disables the warning.
+_PROMPT_TOKEN_WARN = int(
+    os.environ.get(
+        "SAP_PROMPT_TOKEN_WARN",
+        str(_ORCH_CFG.get("agent", {}).get("prompt_token_warn", 50_000)),
+    )
+)
 
 import openai as _openai_lib
 
@@ -288,8 +307,8 @@ class Orchestrator:
         self,
         on_message=None,
         mode: RunMode = RunMode.EXECUTION,
-        approval_gate: Optional[ApprovalGate] = None,
-        run_id: Optional[str] = None,
+        approval_gate: ApprovalGate | None = None,
+        run_id: str | None = None,
         audit_log=None,
     ):
         self._registry = ToolRegistry()
@@ -297,10 +316,10 @@ class Orchestrator:
         self._mode = mode
         self._gate = approval_gate or (AutoApproveGate() if mode is not RunMode.STEP else ApprovalGate())
         self._run_id = run_id or f"run_{uuid.uuid4().hex[:12]}"
-        self._plan: Optional[Plan] = None
+        self._plan: Plan | None = None
         self._last_thinking: str = ""
         self._tool_call_counts: Counter = Counter()
-        self._memory: Optional[MemoryManager] = None
+        self._memory: MemoryManager | None = None
         self._engagement_id: str = ""
         # Optional audit log used by the adaptive layer to emit structured
         # decision events (DecisionKind). Wiring is opt-in to keep the
@@ -340,30 +359,211 @@ class Orchestrator:
             return text[:head_len] + marker
         return text[:head_len] + marker + text[-tail_len:]
 
+    # ── Pre-flight prompt budget (defence-in-depth) ────────────────────────
+    # See ROOT-CAUSE plan 2026-04-30: prevents the orchestrator from POSTing
+    # a >n_ctx prompt to llama-server (which now triggers HTTP 400). The
+    # guard runs before every messages.create / chat.completions.create.
+
+    @staticmethod
+    def _measure_prompt(messages: list, *, system_text: str = "", tools: list | None = None) -> int:
+        """Approximate total prompt tokens for the next LLM call.
+
+        Mirrors what the server tokenises: the system header, the message
+        history (Anthropic blocks + OpenAI dicts both honoured by
+        ``count_message_tokens`` after the 2026-04-30 patch) and the tool
+        schemas (their JSON serialisation is what the model actually sees).
+        """
+        try:
+            from core.memory.tokens import count_message_tokens, count_tokens
+        except Exception:
+            return 0
+        total = count_message_tokens(messages or [])
+        if system_text:
+            total += count_tokens(system_text)
+        if tools:
+            try:
+                total += count_tokens(json.dumps(tools, default=str))
+            except Exception:
+                # Fallback: walk and count names/descriptions.
+                for t in tools:
+                    if isinstance(t, dict):
+                        total += count_tokens(str(t.get("name", "")))
+                        total += count_tokens(str(t.get("description", "")))
+        return total
+
+    def _prompt_budget_guard(
+        self,
+        messages: list,
+        *,
+        system_text: str = "",
+        tools: list | None = None,
+        iteration: int = 0,
+    ) -> tuple[list, bool]:
+        """Pre-flight guard: enforce ``SAP_PROMPT_TOKEN_BUDGET``.
+
+        Returns ``(maybe_pruned_messages, is_overflow_unrecoverable)``.
+
+        Strategy when over budget:
+          1. Aggressive in-place truncation of the longest tool-result
+             content in ``messages`` (head+tail keeping shape), iterating
+             until under budget or no more candidates.
+          2. If still over budget: emit ``error`` event and return
+             overflow=True so the caller can abort the iteration.
+
+        Always emits a ``token_budget`` observability event when total
+        exceeds ``SAP_PROMPT_TOKEN_WARN`` (so dashboards show the trend
+        before the wall is hit).
+        """
+        total = self._measure_prompt(messages, system_text=system_text, tools=tools)
+        if _PROMPT_TOKEN_WARN > 0 and total >= _PROMPT_TOKEN_WARN:
+            try:
+                self._on_message(
+                    "token_budget",
+                    f"iter={iteration} tokens={total}/{_PROMPT_TOKEN_BUDGET}",
+                )
+            except Exception:
+                pass
+        if total <= _PROMPT_TOKEN_BUDGET:
+            return messages, False
+
+        # Try to shrink: truncate the largest string content first.
+        pruned = list(messages)
+        max_passes = 8
+        cap = max(2048, _CALLBACK_RESULT_CAP)
+        for _pass in range(max_passes):
+            longest_idx, longest_len = -1, 0
+            for i, m in enumerate(pruned):
+                content = m.get("content") if isinstance(m, dict) else None
+                if isinstance(content, str):
+                    if len(content) > longest_len:
+                        longest_len, longest_idx = len(content), i
+                elif isinstance(content, list):
+                    # tool_results are typically lists of dicts with ``content`` text.
+                    for j, blk in enumerate(content):
+                        if isinstance(blk, dict):
+                            txt = blk.get("content") or blk.get("text")
+                            if isinstance(txt, str) and len(txt) > longest_len:
+                                longest_len, longest_idx = len(txt), (i, j)
+            if longest_idx == -1 or longest_len <= cap:
+                break
+            # Truncate the longest payload in place.
+            if isinstance(longest_idx, tuple):
+                i, j = longest_idx
+                blk = pruned[i]["content"][j]
+                key = "content" if "content" in blk else "text"
+                blk[key] = self._truncate_for_callback(blk[key])
+            else:
+                m = pruned[longest_idx]
+                # Replace with a copy to avoid mutating the original dict.
+                pruned[longest_idx] = {**m, "content": self._truncate_for_callback(m["content"])}
+            new_total = self._measure_prompt(pruned, system_text=system_text, tools=tools)
+            try:
+                self._on_message(
+                    "token_budget",
+                    f"iter={iteration} pruned tokens={new_total}/{_PROMPT_TOKEN_BUDGET}",
+                )
+            except Exception:
+                pass
+            if new_total <= _PROMPT_TOKEN_BUDGET:
+                return pruned, False
+            total = new_total
+        # Could not shrink under budget — overflow.
+        try:
+            self._on_message(
+                "error",
+                f"prompt budget overflow after pruning: {total}>{_PROMPT_TOKEN_BUDGET} "
+                f"at iter {iteration}; aborting to avoid HTTP 400 from llama-server.",
+            )
+        except Exception:
+            pass
+        return pruned, True
+
     @staticmethod
     def _tool_call_signature(name: str, args: dict) -> str:
         try:
             payload = json.dumps(args, sort_keys=True, default=str)
         except Exception:
             payload = repr(args)
-        return hashlib.sha1(f"{name}|{payload}".encode()).hexdigest()
+        # sha1 is used here as a non-cryptographic content hash for the fuzzy
+        # repetition detector (RepetitionHandler); collision attacks are
+        # not in this code path's threat model.
+        return hashlib.sha1(f"{name}|{payload}".encode()).hexdigest()  # noqa: S324
+
+    # Keys whose CSV values should be tokenised individually so that
+    # ``severity="critical,high"`` and ``severity="critical,high,medium"``
+    # share most tokens (closes the Phase 3 loophole where the LLM
+    # appended one more level to bypass the breaker).
+    _CSV_TOKENISE_KEYS = frozenset({
+        "severity", "tags", "templates", "ports", "levels", "extensions",
+        "wordlists", "modules",
+    })
 
     @staticmethod
-    def _tool_call_token_set(name: str, args: dict) -> frozenset[str]:
+    def _canonicalise_url(value: str) -> str:
+        """Reduce a URL to its host part (lowercase, no ``www.``).
+
+        Returns the original string when it does not look like an HTTP
+        URL or parsing fails. Only used by the fuzzy tokeniser, so a
+        best-effort match is fine — never raises.
+        """
+        if not isinstance(value, str):
+            return value
+        if not value[:8].lower().startswith(("http://", "https://")):
+            return value
+        try:
+            from urllib.parse import urlsplit
+            parts = urlsplit(value)
+            host = (parts.hostname or "").lower()
+            if host.startswith("www."):
+                host = host[4:]
+            return host or value
+        except Exception:
+            return value
+
+    @classmethod
+    def _tool_call_token_set(cls, name: str, args: dict) -> frozenset[str]:
         """Bag-of-tokens for fuzzy circuit-breaker matching.
 
-        Splits all string values on whitespace + common arg separators so
-        ``nmap -p 80`` and ``nmap -p 80,443`` share most tokens (Jaccard
-        similarity ≥ threshold) and trip the same loop counter — closing
-        the SHA1-only loophole where the LLM appends a trivial flag to
-        bypass the breaker.
+        Two normalisations make the breaker robust to common LLM
+        permutation tactics:
+
+        * URL-aware: ``http://x``, ``https://x``, ``https://www.x/`` all
+          collapse to the bare host so the agent can't dodge the breaker
+          by toggling scheme/www/trailing-slash.
+        * CSV-aware: known list-valued args (``severity`` etc.) split on
+          ``,`` so adding/removing a level bumps Jaccard, not signature.
         """
         out: set[str] = {f"@{name}"}
+        canon_args: dict = {}
         try:
-            payload = json.dumps(args, sort_keys=True, default=str)
+            for key, val in (args or {}).items():
+                if isinstance(val, str):
+                    canon = cls._canonicalise_url(val)
+                    canon_args[key] = canon
+                    if key in cls._CSV_TOKENISE_KEYS and "," in canon:
+                        for piece in canon.split(","):
+                            piece = piece.strip()
+                            if piece:
+                                out.add(piece.lower())
+                    else:
+                        out.add(canon.lower()[:64])
+                elif isinstance(val, (list, tuple)):
+                    canon_args[key] = list(val)
+                    for item in val:
+                        if isinstance(item, str) and item:
+                            out.add(item.lower()[:64])
+                else:
+                    canon_args[key] = val
         except Exception:
-            payload = repr(args)
-        # Cheap tokeniser: alphanumerics + dots/dashes/slashes/colons.
+            canon_args = args if isinstance(args, dict) else {}
+
+        # Fallback tokenisation over the *canonicalised* JSON payload —
+        # keeps prior behaviour for nested / unusual arg shapes without
+        # reintroducing raw URLs that were just normalised away.
+        try:
+            payload = json.dumps(canon_args, sort_keys=True, default=str)
+        except Exception:
+            payload = repr(canon_args)
         import re as _re
         for tok in _re.findall(r"[A-Za-z0-9_.:/\\-]+", payload):
             if tok and len(tok) <= 64:
@@ -447,7 +647,7 @@ class Orchestrator:
         return "-"
 
     async def _record_tactic(
-        self, tool_name: str, args: dict, result_str: str, *, status: Optional[str] = None
+        self, tool_name: str, args: dict, result_str: str, *, status: str | None = None
     ) -> None:
         """Append a one-line entry to the tactics_log core memory block.
 
@@ -492,7 +692,7 @@ class Orchestrator:
 
     async def _maybe_pivot(
         self, tool_name: str, args: dict, last_result: str
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Pick a pivot suggestion when auto-pivot is allowed.
 
         Returns a dict with keys ``suggested_tool`` / ``fallback_kind`` /
@@ -580,7 +780,7 @@ class Orchestrator:
         return self._run_id
 
     @property
-    def plan(self) -> Optional[Plan]:
+    def plan(self) -> Plan | None:
         return self._plan
 
     # ── Tool dispatch with mode awareness ──────────────────────────────────────────────────
@@ -709,6 +909,13 @@ class Orchestrator:
         # additionally writes the playbook hint into the scratchpad block.
         await self._run_adaptive_classification(engagement_id)
 
+        # Bind every MCP server's ToolExecutor to this run_id so that
+        # ToolOutputStore.put() actually persists stdout/stderr to disk.
+        # Without this, the executors are constructed with run_id="" and
+        # spill-to-disk is silently OFF — meaning ``read_tool_output_*``
+        # later returns ``call_id not found``. Fire-and-forget per server.
+        await self._broadcast_run_context()
+
         # Prepend engagement context to the user message
         user_message = (
             f"Engagement ID: {engagement_id}\n\n"
@@ -763,6 +970,18 @@ class Orchestrator:
             system_text = wrapped[0]["content"]
             messages = wrapped[1:]
 
+            # Pre-flight prompt-budget guard (defence-in-depth: even after
+            # compaction the next call may still overshoot n_ctx, e.g.
+            # because of a fresh huge tool_result appended this turn).
+            messages, _overflow = self._prompt_budget_guard(
+                messages,
+                system_text=system_text,
+                tools=tools,
+                iteration=iteration,
+            )
+            if _overflow:
+                return final_text
+
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -775,7 +994,7 @@ class Orchestrator:
                     ),
                     timeout=_LLM_REQUEST_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._on_message(
                     "error",
                     f"LLM call timed out after {_LLM_REQUEST_TIMEOUT}s "
@@ -884,8 +1103,8 @@ class Orchestrator:
         single system note. Returns the (possibly mutated) message list."""
         if not _MEMORY_ENABLED or self._memory is None:
             return messages
-        from core.memory.tokens import count_message_tokens
         from core.memory.summarizer import summarize as _summarize
+        from core.memory.tokens import count_message_tokens
         if count_message_tokens(messages) < self._memory._trigger:  # noqa: SLF001
             return messages
         # Always preserve the system header (idx 0) and the last keep_recent
@@ -945,7 +1164,7 @@ class Orchestrator:
             self._on_message("error", f"summarizer failed: {exc}")
             return ""
 
-    async def _load_engagement_record(self, engagement_id: str) -> Optional[dict]:
+    async def _load_engagement_record(self, engagement_id: str) -> dict | None:
         """Best-effort lookup so the 'engagement' core block has scope info."""
         try:
             from core.session_store import SessionStore
@@ -962,6 +1181,34 @@ class Orchestrator:
             }
         except Exception:
             return None
+
+    async def _broadcast_run_context(self) -> None:
+        """Bind every MCP server's ToolExecutor to ``self._run_id``.
+
+        The MCP servers expose a ``set_run_context_<suffix>`` meta-tool (see
+        ``mcp_servers/_response.register_run_context_tool``). We fan-out a
+        call to every variant present in the registry; missing tools are
+        silently skipped so that a partial deployment keeps working.
+
+        Best-effort: failures emit a ``warning`` event but never abort the
+        run. Persistence will simply remain disabled on the affected server.
+        """
+        suffixes = ("recon", "exploit", "parrot", "osint")
+        for suffix in suffixes:
+            tool_name = f"set_run_context_{suffix}"
+            if tool_name not in self._registry._tool_to_server:
+                continue
+            try:
+                resp = await self._registry.call(
+                    tool_name,
+                    {"run_id": self._run_id, "engagement_id": self._engagement_id},
+                )
+                self._on_message("run_context", f"{suffix}: {resp}")
+            except Exception as exc:
+                self._on_message(
+                    "warning",
+                    f"set_run_context_{suffix} failed: {type(exc).__name__}: {exc}",
+                )
 
     async def _run_adaptive_classification(self, engagement_id: str) -> None:
         """Phase 3 entry point — classify scenario + pick playbook.
@@ -1101,6 +1348,17 @@ class Orchestrator:
             messages[0] = {"role": "system", "content": await self._compose_system(base_system)}
             messages = await self._maybe_compact(messages)
 
+            # Pre-flight prompt-budget guard (see _prompt_budget_guard).
+            # The OpenAI loop carries the system header inside ``messages``,
+            # so we pass system_text="" to avoid double-counting.
+            messages, _overflow = self._prompt_budget_guard(
+                messages,
+                tools=tools if tools else None,
+                iteration=_iteration,
+            )
+            if _overflow:
+                return final_text
+
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -1110,10 +1368,15 @@ class Orchestrator:
                         tools=tools if tools else _openai_lib.NOT_GIVEN,
                         tool_choice="auto" if tools else _openai_lib.NOT_GIVEN,
                         max_tokens=_MAX_TOKENS,
+                        # llama.cpp prefix cache: reuses KV for the static
+                        # prompt prefix across turns of the agentic loop.
+                        # Ignored by upstream OpenAI (passes through as
+                        # extra_body). Drops TTFT 30-70 % on multi-step runs.
+                        extra_body={"cache_prompt": True},
                     ),
                     timeout=_LLM_REQUEST_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._on_message(
                     "error",
                     f"LLM call timed out after {_LLM_REQUEST_TIMEOUT}s "
@@ -1236,8 +1499,8 @@ async def run_agent(
     objective: str,
     on_message=None,
     mode: RunMode = RunMode.EXECUTION,
-    approval_gate: Optional[ApprovalGate] = None,
-    run_id: Optional[str] = None,
+    approval_gate: ApprovalGate | None = None,
+    run_id: str | None = None,
 ) -> str:
     agent = Orchestrator(
         on_message=on_message, mode=mode,

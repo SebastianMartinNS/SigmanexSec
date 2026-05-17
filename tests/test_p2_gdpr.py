@@ -4,7 +4,7 @@ P2.2 — GDPR purge + retention.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -101,7 +101,7 @@ async def test_retention_drops_old_entries_and_keeps_chain(env, monkeypatch):
 
     log = AuditLog(audit_path)
     # Force an old timestamp for the first entry, fresh for the second.
-    old_ts = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+    old_ts = (datetime.now(UTC) - timedelta(days=400)).isoformat()
     fresh = AuditEntry(engagement_id="E", actor="t", action="fresh")
     old   = AuditEntry(engagement_id="E", actor="t", action="old")
     # Override timestamp post-construction (Pydantic allows reassignment by default).

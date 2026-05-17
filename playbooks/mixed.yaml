@@ -8,6 +8,7 @@ fallback_chain:
   timeout: ["narrow_scope", "alt_tool_suggestion", "abort"]
   auth_failed: ["credential_recheck", "alt_tool_suggestion"]
   conn_refused: ["scope_recheck", "alt_tool_suggestion"]
+  empty_output: ["web_fingerprint", "alt_tool_suggestion", "scope_recheck", "abort"]
 phases:
   reconnaissance:
     - tool: nmap_scan

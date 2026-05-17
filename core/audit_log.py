@@ -28,7 +28,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from core.models import AuditEntry
 from core.paths import audit_log_path
@@ -59,14 +58,14 @@ def _rotation_max_bytes() -> int:
 class AuditLog:
     """Async append-only audit log backed by a background writer task."""
 
-    def __init__(self, log_path: Optional[str] = None):
+    def __init__(self, log_path: str | None = None):
         self._path = Path(log_path) if log_path else audit_log_path()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         # P2.1: queue carries the *entry* (not a pre-serialized line) so the
         # writer can compute the hash chain sequentially under a single
         # producer-consumer.
         self._queue: asyncio.Queue[AuditEntry] = asyncio.Queue(maxsize=_queue_max())
-        self._writer_task: Optional[asyncio.Task] = None
+        self._writer_task: asyncio.Task | None = None
         self._stopped = asyncio.Event()
         self._dropped = 0
         # Hash-chain head, persisted in a sidecar so restarts continue the
@@ -101,7 +100,7 @@ class AuditLog:
                     first = await asyncio.wait_for(
                         self._queue.get(), timeout=_DEFAULT_FLUSH_INTERVAL_S
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 batch: list[AuditEntry] = [first]
                 while True:
@@ -319,7 +318,7 @@ class AuditLog:
 
         def _read() -> list[AuditEntry]:
             entries: list[AuditEntry] = []
-            with open(self._path, "r", encoding="utf-8") as f:
+            with open(self._path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -356,7 +355,7 @@ def verify_audit_chain(path: str | os.PathLike) -> tuple[bool, int, str]:
         return True, 0, "log file does not exist"
     prev = ""
     n = 0
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         for n, raw in enumerate(f, start=1):
             line = raw.strip()
             if not line:

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SigmanexSec/SigmanexSec/deploy/sandbox/profiles/profile.schema.json",
+  "title": "SAP-Pentest sandbox profile",
+  "description": "Per-category bwrap sandbox descriptor consumed by core/sandbox.py. Each MCP server selects a profile by name (recon, exploit, osint, blueteam, parrot, engagement); core.sandbox.wrap() composes the bwrap command line from these fields.",
+  "type": "object",
+  "required": ["name", "bind_ro", "network_policy", "caps_drop"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {"type": "string"},
+    "name": {
+      "type": "string",
+      "description": "Profile identifier. Must match the JSON filename (without extension)."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable explanation of what this profile allows and why."
+    },
+    "bind_ro": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Host paths exposed read-only inside the sandbox. Typically /usr /etc /lib /bin so the tool can run."
+    },
+    "bind_rw": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {"type": "string"},
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "description": "Extra read-write mounts as [host_path, sandbox_path] pairs. Use sparingly: the workdir is the standard RW path."
+    },
+    "workdir_template": {
+      "type": "string",
+      "description": "Format-string for the per-run workdir on the HOST. {run_id} is interpolated. Created at spawn time. Example: \"/tmp/sap-{run_id}/recon\"."
+    },
+    "workdir_mount": {
+      "type": "string",
+      "description": "Path INSIDE the sandbox where the workdir is mounted RW. Default: /work.",
+      "default": "/work"
+    },
+    "tmpfs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Paths mounted as tmpfs (in-memory, scrubbed at exit). Default: [\"/tmp\"]."
+    },
+    "dev": {"type": "boolean", "default": true, "description": "Expose /dev (minimal, no /dev/sda et al)."},
+    "proc": {"type": "boolean", "default": true, "description": "Expose /proc."},
+    "as_pid_1": {"type": "boolean", "default": true, "description": "Make the tool PID 1 in the sandbox (death-with-parent)."},
+    "unshare_user": {"type": "boolean", "default": true, "description": "Allocate a new user namespace (maps the caller UID to 0 inside)."},
+    "unshare_pid": {"type": "boolean", "default": true, "description": "Allocate a new PID namespace."},
+    "unshare_ipc": {"type": "boolean", "default": true, "description": "Allocate a new IPC namespace."},
+    "unshare_uts": {"type": "boolean", "default": true, "description": "Allocate a new UTS namespace (isolated hostname)."},
+    "network_policy": {
+      "type": "string",
+      "enum": ["in_scope", "domain_allowlist", "none"],
+      "description": "Network egress policy. \"in_scope\" leaves the host network attached (filtering remains the scope_validator's job). \"domain_allowlist\" same as in_scope for v2.3 but reserved for future nftables-based filtering. \"none\" applies --unshare-net for full isolation."
+    },
+    "caps_drop": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Linux capabilities dropped before exec. Default policy is [\"ALL\"]; add explicit caps via caps_keep."
+    },
+    "caps_keep": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Capabilities kept despite caps_drop. Example: [\"CAP_NET_RAW\", \"CAP_NET_BIND_SERVICE\"] for nmap SYN scans."
+    },
+    "seccomp_filter": {
+      "type": "string",
+      "description": "Path to a precompiled seccomp BPF blob. Reserved for v2.4."
+    }
+  }
+}

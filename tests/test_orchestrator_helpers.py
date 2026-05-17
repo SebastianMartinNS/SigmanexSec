@@ -1,8 +1,6 @@
 """Smoke test for the orchestrator helpers that don't need a live LLM."""
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agent.orchestrator import Orchestrator

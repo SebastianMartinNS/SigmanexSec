@@ -1,10 +1,10 @@
 """Phase 4: auto-artifacts injection + response profile resolution."""
 from __future__ import annotations
 
-import pytest
-
 from core.parrot_catalog import (
-    auto_artifact_flags, materialize_artifact_flags, response_profile_for,
+    auto_artifact_flags,
+    materialize_artifact_flags,
+    response_profile_for,
 )
 
 

@@ -3,23 +3,35 @@ sap_dashboard/backend/routes/runs.py — Agent run REST + WebSocket.
 """
 from __future__ import annotations
 
-import asyncio
-import json
-from typing import Optional
-
 from fastapi import (
-    APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status,
+    APIRouter,
+    Depends,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
 )
 
 from ..deps import require_auth
+from ..rbac import ROLE_OPERATOR, ROLE_VIEWER, require_role
 from ..run_manager import get_runs
 from ..schemas import ApprovalDecisionBody, RunControl, RunStartBody, RunStatus
 from ..ws import get_broker
 
-router = APIRouter(prefix="/api", tags=["runs"])
+router = APIRouter(
+    prefix="/api",
+    tags=["runs"],
+    # Reading run state is viewer-level; mutating routes (POST/PATCH/approve)
+    # override to operator below.
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 
-@router.post("/engagements/{engagement_id}/run", response_model=RunStatus)
+@router.post(
+    "/engagements/{engagement_id}/run",
+    response_model=RunStatus,
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 async def start_run(
     engagement_id: str, body: RunStartBody, _user: str = Depends(require_auth)
 ):
@@ -41,18 +53,25 @@ async def get_run(run_id: str, _user: str = Depends(require_auth)):
     return RunStatus(**h.to_dict())
 
 
-@router.patch("/runs/{run_id}", response_model=RunStatus)
+@router.patch(
+    "/runs/{run_id}",
+    response_model=RunStatus,
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 async def control_run(run_id: str, body: RunControl, _user: str = Depends(require_auth)):
     try:
         h = await get_runs().control(run_id, body.action)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="run not found")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return RunStatus(**h.to_dict())
 
 
-@router.post("/runs/{run_id}/approve")
+@router.post(
+    "/runs/{run_id}/approve",
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 async def approve_run(
     run_id: str, body: ApprovalDecisionBody, user: str = Depends(require_auth)
 ):
@@ -83,11 +102,11 @@ async def ws_events(websocket: WebSocket, run_id: str, from_seq: int = 0):
     HTTP Basic clients may also use the standard Authorization header.
     """
     # Authenticate BEFORE accepting the upgrade.
-    user: Optional[str] = None
+    user: str | None = None
 
     # Path A: signed session cookie.
-    from ..security import SESSION_COOKIE, verify_session
     from ..deps import _expected_creds
+    from ..security import SESSION_COOKIE, verify_session
     expected = _expected_creds()
     if expected is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

@@ -4,7 +4,7 @@ sap_dashboard/backend/schemas.py — DTO models for the dashboard API.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -30,16 +30,16 @@ class EngagementCreateBody(BaseModel):
 
 
 class EngagementPatch(BaseModel):
-    status: Optional[str] = None
-    current_phase: Optional[str] = None
+    status: str | None = None
+    current_phase: str | None = None
 
 
 class RunStartBody(BaseModel):
     objective: str
     mode: str = "execution"
     max_iterations: int = 12
-    model: Optional[str] = None
-    provider: Optional[str] = None
+    model: str | None = None
+    provider: str | None = None
 
 
 class RunStatus(BaseModel):
@@ -49,10 +49,10 @@ class RunStatus(BaseModel):
     mode: str
     state: str  # running | paused | done | error | killed
     started_at: datetime
-    finished_at: Optional[datetime] = None
+    finished_at: datetime | None = None
     iterations: int = 0
-    error: Optional[str] = None
-    final_text: Optional[str] = None
+    error: str | None = None
+    final_text: str | None = None
 
 
 class RunControl(BaseModel):

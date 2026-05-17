@@ -16,7 +16,6 @@ from __future__ import annotations
 import ipaddress
 import re
 from dataclasses import dataclass
-from typing import Optional
 from urllib.parse import urlparse
 
 import idna
@@ -46,7 +45,7 @@ class NormalizedTarget:
         return self.value
 
 
-def _is_unsafe_ip(net: ipaddress.IPv4Network | ipaddress.IPv6Network) -> Optional[str]:
+def _is_unsafe_ip(net: ipaddress.IPv4Network | ipaddress.IPv6Network) -> str | None:
     """Return a human-readable reason if the network is intrinsically unsafe."""
     addr = net.network_address
     if addr.is_loopback:
@@ -143,7 +142,7 @@ def normalize_target(
     return NormalizedTarget(kind="domain", value=encoded, raw=raw)
 
 
-def safe_or_none(raw: str, **kw) -> Optional[NormalizedTarget]:
+def safe_or_none(raw: str, **kw) -> NormalizedTarget | None:
     try:
         return normalize_target(raw, **kw)
     except InvalidTarget:

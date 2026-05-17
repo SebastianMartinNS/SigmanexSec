@@ -21,7 +21,7 @@ on your checkout.
 
 ```bash
 # 1. Fresh clone (the submodule URL is in .gitmodules)
-git clone https://github.com/SebastianMartinNS/SigmanexSec.git sap-pentest
+git clone https://github.com/SigmanexSec/SigmanexSec.git sap-pentest
 cd sap-pentest
 
 # 2. Pull the upstream llama.cpp tree at the pinned commit

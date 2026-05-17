@@ -14,7 +14,6 @@ import hashlib
 import math
 import os
 import struct
-from typing import Optional
 
 _DEFAULT_MODEL = os.environ.get(
     "SAP_EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
@@ -23,7 +22,7 @@ _DEFAULT_DIM = int(os.environ.get("SAP_EMBEDDING_DIM", "384"))
 
 
 class EmbeddingProvider:
-    def __init__(self, model_name: Optional[str] = None, dim: int = _DEFAULT_DIM):
+    def __init__(self, model_name: str | None = None, dim: int = _DEFAULT_DIM):
         self._model_name = model_name or _DEFAULT_MODEL
         self._dim = dim
         self._model = None
@@ -91,4 +90,4 @@ def _hash_embed(text: str, dim: int) -> list[float]:
 def cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
-    return sum(x * y for x, y in zip(a, b))  # both are L2-normalized
+    return sum(x * y for x, y in zip(a, b, strict=False))  # both are L2-normalized

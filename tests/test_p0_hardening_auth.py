@@ -68,7 +68,7 @@ def test_basic_auth_still_works(client):
 def test_csrf_blocks_state_change_without_token(client):
     client.post("/api/auth/login", json={"username": "u", "password": "verystrongpass1234"})
     # Cookies are now set on the client. POST without CSRF header.
-    r = client.post("/api/sudo", json={})  # any state-changing path on auth router
+    client.post("/api/sudo", json={})  # any state-changing path on auth router
     # Should be 403 (CSRF) — not 200/204
     # /api/sudo doesn't accept POST with empty body (404/405 also fine), but
     # NOT 401: cookie auth was accepted.

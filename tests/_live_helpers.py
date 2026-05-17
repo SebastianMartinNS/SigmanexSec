@@ -18,7 +18,6 @@ import socket
 import pytest
 
 from core.models import Engagement, EngagementCreate
-from core.session_store import SessionStore
 
 
 def require_live() -> None:

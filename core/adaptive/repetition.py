@@ -25,10 +25,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 from core.adaptive.playbook import Playbook
-
 
 # Failure-class classifier (cheap regex over stderr/result text). Keep the
 # token set small and stable — dashboards and KPI scripts depend on it.
@@ -38,6 +36,16 @@ _FAILURE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("conn_refused", re.compile(r"\b(connection refused|no route to host|network unreachable)\b", re.I)),
     ("rate_limited", re.compile(r"\b(429|rate[- ]limit(ed)?|too many requests)\b", re.I)),
     ("permission_denied", re.compile(r"\b(permission denied|operation not permitted|EACCES)\b", re.I)),
+    # ``empty_output`` matches the structured ``diagnosis`` payload emitted
+    # by ``mcp_servers/_response.py:diagnose_empty_output`` when a scanner
+    # returned rc=0 but no findings. Listed before ``not_found`` so it
+    # wins on responses that contain the literal "404" elsewhere.
+    ("empty_output", re.compile(
+        r'"diagnosis"\s*:\s*\{[^}]*"kind"\s*:\s*"'
+        r'(no_findings|host_unreachable|no_templates|tls_handshake_failed|'
+        r'timeout_in_tool|rate_limited_upstream|unknown_empty)"',
+        re.I,
+    )),
     ("not_found", re.compile(r"\b(404|not found|no such file)\b", re.I)),
 )
 
@@ -49,7 +57,9 @@ _FAMILY_PIVOTS: dict[str, tuple[str, ...]] = {
     "masscan_scan": ("nmap_scan", "rustscan"),
     "dir_fuzz": ("ffuf", "feroxbuster", "gobuster"),
     "web_fingerprint": ("whatweb", "wafw00f"),
-    "web_vuln_scan": ("nuclei", "nikto"),
+    "web_vuln_scan": ("nuclei_scan", "nikto_scan"),
+    "nuclei_scan": ("httpx_scan", "nikto_scan", "whatweb"),
+    "nikto_scan": ("nuclei_scan", "whatweb", "web_fingerprint"),
     "sqli_test": ("command_injection_test", "web_vuln_scan"),
     "brute_force": ("kerberoast", "asreproast", "credential_recheck"),
     "smb_enum": ("netexec_run", "enum4linux"),
@@ -62,7 +72,7 @@ _FAMILY_PIVOTS: dict[str, tuple[str, ...]] = {
 class PivotSuggestion:
     """Outcome of a repetition event."""
     failure_class: str
-    suggested_tool: Optional[str]
+    suggested_tool: str | None
     fallback_kind: str  # "playbook" | "family" | "diversify"
     rationale: str
 
@@ -100,7 +110,7 @@ class RepetitionHandler:
         *,
         tool_name: str,
         last_result: str = "",
-        playbook: Optional[Playbook] = None,
+        playbook: Playbook | None = None,
     ) -> PivotSuggestion:
         """Pick a pivot for ``tool_name`` after a repetition event.
 

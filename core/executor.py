@@ -17,18 +17,15 @@ import os
 import re
 import shlex
 import time
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
-from core.models import AuditEntry, ExecutionResult, Phase, ToolOutputRefModel
-from core.sudo_vault import SudoVault, SudoLocked, SudoFailed, get_sudo_vault
 from core.approval_gate import ApprovalGate
-from core.tool_output_store import ToolOutputStore, get_tool_output_store
+from core.models import AuditEntry, ExecutionResult, Phase, ToolOutputRefModel
+from core.sudo_vault import SudoLocked, SudoVault, get_sudo_vault
 from core.time_utils import utcnow as _sap_utcnow
-
+from core.tool_output_store import ToolOutputStore, get_tool_output_store
 
 # ─────────────────────────────────────────────
 # Load config once at import time
@@ -72,10 +69,10 @@ def _blocked_patterns() -> list[str]:
 # expose ``compile_blocked_patterns()`` so that callers (e.g. start-up code,
 # tests) can validate the regexes ahead of time and fail loudly on syntax
 # errors instead of discovering them at the first matching attempt.
-_BLOCKED_PATTERNS_CACHE: list[tuple[str, "re.Pattern[str]"]] | None = None
+_BLOCKED_PATTERNS_CACHE: list[tuple[str, re.Pattern[str]]] | None = None
 
 
-def compile_blocked_patterns(force: bool = False) -> list[tuple[str, "re.Pattern[str]"]]:
+def compile_blocked_patterns(force: bool = False) -> list[tuple[str, re.Pattern[str]]]:
     """Compile (and cache) the blocked-arg regexes; raise on syntax errors.
 
     Call from process startup to fail-closed if config.yaml ships a malformed
@@ -245,7 +242,7 @@ def redact_sudo(text: str) -> str:
     return out
 
 
-async def _kill_process_tree(proc: "asyncio.subprocess.Process", grace: float = 1.5) -> None:
+async def _kill_process_tree(proc: asyncio.subprocess.Process, grace: float = 1.5) -> None:
     """SIGTERM the process group, wait briefly, then SIGKILL.
 
     Used by ``_exec`` on timeout. The child was started with
@@ -270,7 +267,7 @@ async def _kill_process_tree(proc: "asyncio.subprocess.Process", grace: float = 
     try:
         await asyncio.wait_for(proc.wait(), timeout=grace)
         return
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
     # Phase 2: hard SIGKILL to the group.
     try:
@@ -282,7 +279,7 @@ async def _kill_process_tree(proc: "asyncio.subprocess.Process", grace: float = 
             pass
     try:
         await asyncio.wait_for(proc.wait(), timeout=grace)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # Last-resort: process is unkillable (D state). Return; the leader is
         # at least no longer holding the parent coroutine.
         pass
@@ -310,11 +307,11 @@ class ToolExecutor:
         self,
         audit_log=None,         # core.audit_log.AuditLog instance
         scope_validator=None,   # core.scope_validator.ScopeValidator instance
-        sudo_vault: Optional[SudoVault] = None,
-        approval_gate: Optional[ApprovalGate] = None,
+        sudo_vault: SudoVault | None = None,
+        approval_gate: ApprovalGate | None = None,
         *,
-        run_id: Optional[str] = None,
-        output_store: Optional[ToolOutputStore] = None,
+        run_id: str | None = None,
+        output_store: ToolOutputStore | None = None,
     ):
         self._audit = audit_log
         self._scope = scope_validator
@@ -329,7 +326,7 @@ class ToolExecutor:
         """Bind this executor to a specific run for output persistence."""
         self._run_id = run_id
 
-    def _store(self) -> Optional[ToolOutputStore]:
+    def _store(self) -> ToolOutputStore | None:
         if not _persist_outputs():
             return None
         if self._output_store is None:
@@ -347,14 +344,16 @@ class ToolExecutor:
         *,
         engagement_id: str = "",
         phase: Phase = Phase.SCANNING,
-        timeout: Optional[int] = None,
-        cwd: Optional[str] = None,
-        target: Optional[str] = None,   # for scope check
-        identity_target: Optional[tuple[str, str]] = None,  # (value, kind) for OSINT
-        requires_sudo: Optional[bool] = None,
+        timeout: int | None = None,
+        cwd: str | None = None,
+        target: str | None = None,   # for scope check
+        identity_target: tuple[str, str] | None = None,  # (value, kind) for OSINT
+        requires_sudo: bool | None = None,
         sudo_reason: str = "",
-        call_id: Optional[str] = None,
+        call_id: str | None = None,
         pii: bool = False,
+        sandbox_profile: str | None = None,
+        sandbox_category: str | None = None,
     ) -> ExecutionResult:
         """
         Execute *tool* with *args* after performing all security checks.
@@ -392,21 +391,61 @@ class ToolExecutor:
         if requires_sudo is None:
             requires_sudo = _needs_sudo(tool, args)
 
-        sudo_password: Optional[bytes] = None
+        sudo_password: bytes | None = None
         if requires_sudo:
             sudo_password = await self._acquire_sudo(
                 tool=tool, args=args, engagement_id=engagement_id,
                 sudo_reason=sudo_reason or "privileged tool",
             )
 
-        # 5. Build command
+        # 5. Build command and (optionally) wrap it in the OS-level sandbox.
+        #    The sandbox is the second line of defence after scope_validator:
+        #    it constrains *how* the tool behaves once launched (filesystem,
+        #    capabilities, namespaces, network) per a per-category profile
+        #    (deploy/sandbox/profiles/<name>.json).
+        #
+        #    v2.3 limitation: tools that require sudo run UNwrapped. The
+        #    bwrap user-namespace strips setuid, so `sudo` would refuse;
+        #    a privileged-sandbox proxy is on the v2.4 roadmap.
+        from core import sandbox as _sandbox
+
+        sandbox_decision: _sandbox.SandboxDecision | None = None
         if requires_sudo:
             cmd = ["sudo", "-S", "-p", ""] + [tool] + args
         else:
-            cmd = [tool] + args
+            tool_argv = [tool] + args
+            profile_name = _sandbox.resolve_profile(
+                sandbox_profile, category_hint=sandbox_category
+            )
+            sandbox_decision = _sandbox.wrap(
+                profile_name, tool_argv, run_id=self._run_id
+            )
+            cmd = sandbox_decision.wrapped_argv
 
-        # 6. Audit before execution (redacted command for privileged tools)
+        # 6. Audit before execution (redacted command for privileged tools).
+        #    For sandbox=warn we also emit the would-have-wrapped argv so
+        #    operators can verify the profile matches expectations before
+        #    flipping to enforce.
         audit_cmd = redact_sudo(shlex.join(cmd)) if requires_sudo else shlex.join(cmd)
+        if (
+            sandbox_decision is not None
+            and sandbox_decision.mode == "warn"
+            and self._audit
+            and engagement_id
+        ):
+            await self._audit.write(AuditEntry(
+                engagement_id=engagement_id,
+                action="sandbox.warn",
+                target=target or "",
+                details={
+                    "tool": tool,
+                    "profile": sandbox_decision.profile_name,
+                    "would_have_wrapped_argv": (
+                        sandbox_decision.would_have_wrapped_argv or []
+                    ),
+                    "notes": sandbox_decision.notes,
+                },
+            ))
         # The audit ``target`` field carries the identity value when present,
         # so PII filtering by target also catches OSINT entries.
         audit_target = target or ""
@@ -455,7 +494,7 @@ class ToolExecutor:
 
         # 7c. Persist FULL output to canonical store (before any cap).
         cid = call_id or ToolOutputStore.new_call_id()
-        output_ref_model: Optional[ToolOutputRefModel] = None
+        output_ref_model: ToolOutputRefModel | None = None
         store = self._store()
         if store is not None and self._run_id:
             try:
@@ -563,8 +602,8 @@ class ToolExecutor:
     async def _exec(
         cmd: list[str],
         timeout: int,
-        cwd: Optional[str],
-        sudo_password: Optional[bytes] = None,
+        cwd: str | None,
+        sudo_password: bytes | None = None,
     ) -> tuple[str, str, int]:
         # start_new_session=True puts the child in its own process group so we
         # can SIGKILL the entire tree on timeout (nmap workers, ssh subshells,
@@ -578,17 +617,17 @@ class ToolExecutor:
             cwd=cwd,
             start_new_session=True,
         )
-        stdin_payload: Optional[bytes] = None
+        stdin_payload: bytes | None = None
         if sudo_password is not None:
             stdin_payload = sudo_password + b"\n"
 
         cap = _persist_max_bytes()
         overflow_marker = (
-            f"\n[TRUNCATED at {cap} bytes -- runaway output]\n".encode("utf-8")
+            f"\n[TRUNCATED at {cap} bytes -- runaway output]\n".encode()
         )
         overflow_event = asyncio.Event()
 
-        async def _drain(stream: Optional[asyncio.StreamReader]) -> tuple[bytearray, bool]:
+        async def _drain(stream: asyncio.StreamReader | None) -> tuple[bytearray, bool]:
             """Read up to ``cap`` bytes from a stream; signal overflow on cap hit."""
             buf = bytearray()
             if stream is None:
@@ -642,7 +681,7 @@ class ToolExecutor:
                     timeout=float(timeout),
                 )
                 await proc.wait()
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 await _kill_process_tree(proc)
                 # Give drain tasks a moment to settle.
                 with contextlib.suppress(asyncio.TimeoutError):

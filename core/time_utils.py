@@ -8,7 +8,7 @@ strings) which are compared lexicographically.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def utcnow() -> datetime:
@@ -20,7 +20,7 @@ def utcnow() -> datetime:
     (no ``+00:00`` suffix). This preserves SQLite ordering semantics for
     rows written before this change.
     """
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def utcnow_iso(timespec: str = "seconds") -> str:

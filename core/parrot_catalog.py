@@ -17,12 +17,10 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
-
 
 # ─────────────────────────────────────────────
 # Errors
@@ -40,7 +38,7 @@ _DEFAULT_PATH = Path(__file__).parent.parent / "parrot_tools.yaml"
 _CACHE: dict[str, Any] = {"path": None, "mtime": 0.0, "data": []}
 
 
-def load_catalog(path: Optional[str | Path] = None, force: bool = False) -> list[dict]:
+def load_catalog(path: str | Path | None = None, force: bool = False) -> list[dict]:
     p = Path(path) if path else _DEFAULT_PATH
     if not p.exists():
         return []
@@ -60,7 +58,7 @@ def load_catalog(path: Optional[str | Path] = None, force: bool = False) -> list
     return data
 
 
-def get_descriptor(name: str) -> Optional[dict]:
+def get_descriptor(name: str) -> dict | None:
     for d in load_catalog():
         if d.get("name") == name:
             return d
@@ -108,8 +106,8 @@ def _validate_args(descriptor: dict, args: dict) -> dict:
             elif t == "integer":
                 try:
                     val = int(val)
-                except Exception:
-                    raise CatalogError(f"Arg '{key}' must be integer")
+                except Exception as exc:
+                    raise CatalogError(f"Arg '{key}' must be integer") from exc
             elif t == "boolean":
                 if isinstance(val, str):
                     val = val.lower() in ("1", "true", "yes", "on")
@@ -120,6 +118,18 @@ def _validate_args(descriptor: dict, args: dict) -> dict:
                 raise CatalogError(
                     f"Arg '{key}' must be one of {enum}, got {val!r}"
                 )
+            pattern = spec.get("pattern")
+            if pattern and isinstance(val, str):
+                try:
+                    if not re.match(pattern, val):
+                        raise CatalogError(
+                            f"Arg '{key}' must match pattern {pattern!r}, "
+                            f"got {val!r}"
+                        )
+                except re.error as exc:
+                    raise CatalogError(
+                        f"Arg '{key}': invalid pattern in schema: {exc}"
+                    ) from exc
             out[key] = val
         elif "default" in spec:
             out[key] = spec["default"]
@@ -159,7 +169,7 @@ _VAR_RE = re.compile(r"\{\{(\w+)\}\}")
 _SHELL_META_RE = re.compile(r"[;&|`$<>\\\n\r]|\$\(|\$\{")
 
 
-def _render_one(tpl: str, ctx: dict) -> Optional[str]:
+def _render_one(tpl: str, ctx: dict) -> str | None:
     """Render one template element. Returns None if a conditional segment
     drops the entire element (i.e. the element became empty)."""
     # Conditional segments
@@ -481,7 +491,7 @@ _VALID_CATEGORIES = {
 _VALID_RISK = {"low", "medium", "high", "critical", "unknown"}
 
 
-def lint_catalog(path: Optional[str | Path] = None) -> list[str]:
+def lint_catalog(path: str | Path | None = None) -> list[str]:
     """
     Return a list of human-readable warnings for the catalogue.
     Empty list = catalogue is clean. Used by tests / CI.
@@ -493,7 +503,8 @@ def lint_catalog(path: Optional[str | Path] = None) -> list[str]:
         prefix = f"[{i}]"
         name = d.get("name")
         if not name:
-            issues.append(f"{prefix} missing 'name'"); continue
+            issues.append(f"{prefix} missing 'name'")
+            continue
         prefix = f"[{name}]"
         if name in seen:
             issues.append(f"{prefix} duplicate name")

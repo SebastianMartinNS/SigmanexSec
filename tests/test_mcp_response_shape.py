@@ -1,8 +1,6 @@
 """Tests for mcp_servers._response — canonical MCP tool response shape."""
 from __future__ import annotations
 
-import pytest
-
 from core.models import ExecutionResult, Phase, ToolOutputRefModel
 from mcp_servers._response import build_tool_response
 

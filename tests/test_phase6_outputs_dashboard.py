@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import os
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 from fastapi.testclient import TestClient
-
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -17,7 +14,8 @@ from fastapi.testclient import TestClient
 def populated_store(tmp_paths, monkeypatch):
     """Create a ToolOutputStore with one persisted call."""
     from core.tool_output_store import (
-        get_tool_output_store, reset_tool_output_store,
+        get_tool_output_store,
+        reset_tool_output_store,
     )
     reset_tool_output_store()
     store = get_tool_output_store()

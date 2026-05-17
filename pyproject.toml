@@ -1,7 +1,190 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sap-pentest"
+version = "2.2.0.dev0"
+description = "Sigmanex SAP-Pentest — agentic penetration testing platform with scope-locked tools, BLAKE2b-chained audit, and pluggable LLM backends."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Sebastian Martin", email = "adriansebastianmartin@gmail.com" },
+]
+maintainers = [
+    { name = "Sigmanex", email = "info@sigmanex.net" },
+]
+keywords = [
+    "pentest",
+    "security",
+    "red-team",
+    "mcp",
+    "llm",
+    "agent",
+    "audit",
+    "compliance",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+    "Typing :: Typed",
+]
+dependencies = [
+    "mcp[cli]>=1.5.0",
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+    "pydantic>=2.7.0",
+    "cryptography>=42.0.0",
+    "rich>=13.7.0",
+    "click>=8.1.7",
+    "aiosqlite>=0.20.0",
+    "python-dotenv>=1.0.0",
+    "jinja2>=3.1.4",
+    "fastapi>=0.115.0",
+    # Starlette 1.0.0 (Apr 2026) is a breaking release: the LRU template
+    # cache now keys on the request context, which contains unhashable
+    # dicts in our dashboard pages. Until that lands cleanly upstream we
+    # pin to the 0.x line.
+    "starlette>=0.36.0,<1.0",
+    "uvicorn[standard]>=0.30.0",
+    "websockets>=12.0",
+    "pyyaml>=6.0.1",
+    "pexpect>=4.9.0",
+    "idna>=3.6",
+    "aiofiles>=23.0.0",
+    "itsdangerous>=2.1.0",
+    "structlog>=24.1.0",
+    # defusedxml parses nmap XML output (and any other XML coming from tool
+    # stdout). The standard library xml parsers are vulnerable to entity
+    # expansion / external entity attacks — output of a probed target is
+    # untrusted by definition.
+    "defusedxml>=0.7.1",
+    # Argon2id is the at-rest credential hash used by the dashboard
+    # (sap_dashboard.backend.security). It MUST stay in the core dep set
+    # — the v2.3 hardening target ("operator creds never plaintext at
+    # rest or in memory compare") collapses if an extra makes the
+    # protection optional.
+    "argon2-cffi>=23.1.0",
+    # OIDC support (sap_dashboard.backend.sso.oidc) ships in the base
+    # image; SAML is opt-in via the [sso-saml] extra because python3-saml
+    # pulls heavy native libs (xmlsec, libxml2).
+    "authlib>=1.3.0",
+]
+
+[project.optional-dependencies]
+# Long-term memory subsystem — both libs are loaded lazily with graceful
+# fallbacks in core/memory/{tokens,embeddings}.py. Skipping them keeps the
+# default install small and avoids pulling ~600 MB of torch wheels for
+# operators who do not need cosine-similarity memory.
+ml = [
+    "tiktoken>=0.7.0",
+    "sentence-transformers>=2.7.0",
+]
+sso-saml = [
+    # python3-saml requires libxml2 + libxmlsec1 dev headers on the host:
+    #   Debian/Ubuntu: apt install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+    "python3-saml>=1.16.0",
+]
+observability = [
+    "prometheus-client>=0.20.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "opentelemetry-api>=1.27.0",
+    "opentelemetry-sdk>=1.27.0",
+    "opentelemetry-exporter-otlp>=1.27.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "hypothesis>=6.100.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+    "bandit>=1.7.9",
+    "pip-audit>=2.7.0",
+    "build>=1.2.0",
+    "pip-tools>=7.4.0",
+    "types-PyYAML",
+    "types-aiofiles",
+    "types-pexpect",
+]
+# Convenience aggregate so contributors can `pip install -e .[all]`.
+all = [
+    "sap-pentest[ml,sso-saml,observability]",
+]
+
+[project.urls]
+Homepage = "https://www.sigmanex.net"
+Repository = "https://github.com/SigmanexSec/SigmanexSec"
+Issues = "https://github.com/SigmanexSec/SigmanexSec/issues"
+Changelog = "https://github.com/SigmanexSec/SigmanexSec/blob/main/CHANGELOG.md"
+Security = "https://github.com/SigmanexSec/SigmanexSec/blob/main/SECURITY.md"
+
+[project.scripts]
+sap-pentest = "cli:cli"
+sap-mcp-runner = "mcp_http_runner:main"
+
+# ── setuptools layout ─────────────────────────────────────────────────────────
+# cli.py and mcp_http_runner.py live at repo root as historical scripts. Keep
+# them installable as py-modules; first-class packages live under their own
+# directories.
+[tool.setuptools]
+py-modules = ["cli", "mcp_http_runner"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = [
+    "agent*",
+    "core*",
+    "mcp_servers*",
+    "sap_dashboard*",
+]
+exclude = [
+    "tests*",
+    "llama.cpp*",
+    "build*",
+    "deploy*",
+    "docs*",
+    "scripts*",
+    "patches*",
+    "reports*",
+    "runs*",
+    "sessions*",
+    "results*",
+    "logs*",
+    "__pycache__*",
+]
+
+[tool.setuptools.package-data]
+"agent" = ["prompts/*.md"]
+"sap_dashboard" = [
+    "frontend/index.html",
+    "frontend/tailwind.config.js",
+    "frontend/tailwind.src.css",
+    "frontend/assets/**/*",
+    "frontend/templates/**/*",
+    "frontend/vendor/**/*",
+]
+
+# ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-m 'not live and not lab'"
+# Sandbox-escape tests require bwrap + user namespaces; they run only on
+# the dedicated self-hosted CI runner (.github/workflows/ci-sandbox.yml).
+addopts = "-m 'not live and not lab and not sandbox'"
 filterwarnings = [
     "ignore::DeprecationWarning:pydantic.*",
     "ignore::DeprecationWarning:websockets.*",
@@ -10,18 +193,36 @@ markers = [
     "lab: end-to-end tests that require PENTEST_LAB_CIDR and the lab to be reachable",
     "slow: tests that take more than ~2s",
     "live: live OSINT tests requiring real binaries + internet (gated by SAP_LIVE_OSINT=1)",
+    "sandbox: real bwrap escape tests; require bwrap + user namespaces (CI runs them on the self-hosted runner)",
 ]
 
+# ── ruff ──────────────────────────────────────────────────────────────────────
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["llama.cpp", "build", "sap_dashboard/frontend"]
+extend-exclude = [
+    "llama.cpp",
+    "build",
+    "sap_dashboard/frontend",
+    # Legacy dev scripts at the repo root (one-shot manual verifications of
+    # the llama.cpp tool-call promotion path). They precede the v2.0 cleanup
+    # and live outside the supported tests/ tree.
+    "test_tool_calling.py",
+    "test_mcp_tool_calling.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "S", "UP", "I"]
 ignore = [
     "E501",  # long lines acceptable in prompts/configs
+    "E402",  # module-level imports after sys.path.insert is the documented
+             # entrypoint pattern (cli.py, mcp_servers/*.py, mcp_http_runner.py)
     "S101",  # assert usage fine in tests
+    "S108",  # /tmp + $XDG_RUNTIME_DIR fallback paths are deliberate
+             # (sudo_broker.default_socket_path, mcp_http_runner spill paths)
+    "S110",  # try/except: pass is the documented graceful-degrade pattern
+             # (memory fallbacks, optional integrations, defensive cleanup)
+    "S112",  # try/except: continue is the same pattern at loop scope
     "S603",  # subprocess.run with list-args is the correct pattern here
     "S607",  # start-process-with-partial-path is intentional (tools come from PATH)
     "B008",  # FastAPI Depends() default
@@ -29,3 +230,61 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106", "S311"]
+
+# ── mypy ──────────────────────────────────────────────────────────────────────
+# Strict by default for the security-critical surface; modules that have not
+# yet been audited use targeted overrides so we can ratchet up coverage one
+# module per PR without blocking CI on day one.
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+disallow_untyped_decorators = false
+exclude = [
+    "^llama\\.cpp/",
+    "^build/",
+    "^sap_dashboard/frontend/",
+    "^tests/",
+    "^scripts/",
+    "^reports/",
+    "^runs/",
+    "^sessions/",
+    "^results/",
+    "^logs/",
+    "^patches/",
+]
+
+# Third-party packages without type stubs — silence missing imports rather
+# than failing every file that touches them.
+[[tool.mypy.overrides]]
+module = [
+    "mcp.*",
+    "tiktoken",
+    "sentence_transformers",
+    "sentence_transformers.*",
+    "pexpect",
+    "argon2.*",
+    "saml2.*",
+    "authlib.*",
+]
+ignore_missing_imports = true
+
+# Modules pending strict-typing audit. Remove the override once the file
+# passes `mypy --strict` cleanly (one per PR is fine).
+[[tool.mypy.overrides]]
+module = [
+    "agent.orchestrator",
+    "cli",
+    "mcp_http_runner",
+    "core.memory.*",
+    "core.adaptive.*",
+    "core.parrot_catalog",
+    "sap_dashboard.backend.ws",
+    "sap_dashboard.backend.run_manager",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+warn_return_any = false

@@ -12,12 +12,16 @@ import json
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional
+
+# nmap output is attacker-controlled (probed target). Use defusedxml so a
+# malicious target cannot trigger entity-expansion or external-entity
+# attacks against the recon MCP server process.
+from defusedxml import ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
@@ -38,13 +42,53 @@ _exe   = ToolExecutor(audit_log=audit)   # scope_validator set per call
 
 mcp = FastMCP("pentest-recon")
 from core.tool_output_store import get_tool_output_store
-from mcp_servers._response import register_resource_handlers
+from mcp_servers._response import (
+    _hard_cap_bytes,
+    register_resource_handlers,
+    register_run_context_tool,
+)
+
 register_resource_handlers(mcp, get_tool_output_store, server_suffix="recon")
+register_run_context_tool(mcp, _exe, server_suffix="recon")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _get_scope(engagement_id: str) -> Optional[ScopeValidator]:
+
+def _parse_error_snippet(text: str | None) -> str:
+    """Return a bounded snippet of unparseable stdout.
+
+    The legacy ``"raw": result.stdout`` pattern shipped up to ``executor.
+    max_output_bytes`` (512 KB \u2248 125 K tokens) inline to the LLM whenever
+    JSON parsing failed. That single field caused the 346 K token
+    prompt-explosion observed on 2026-04-30. We now ship at most
+    ``SAP_MCP_HARD_CAP_BYTES`` worth of stdout; the full payload remains
+    addressable via ``output_ref`` + ``read_tool_output_recon``.
+    """
+    if not text:
+        return ""
+    cap = _hard_cap_bytes()
+    if len(text) <= cap:
+        return text
+    # Head+tail split keeps the opening (often a CLI banner) and the end
+    # (typical place for diagnostic / summary lines).
+    head = text[: max(1024, cap - 1024)]
+    tail = text[-1024:]
+    return head + "\n... [truncated " + str(len(text) - len(head) - len(tail)) + " chars] ...\n" + tail
+
+
+def _output_ref_dict(result) -> dict:
+    """Extract the canonical ``output_ref`` block from an ExecutionResult."""
+    ref = getattr(result, "output_ref", None)
+    if ref is None:
+        return {}
+    return {
+        "stdout_uri": getattr(ref, "stdout_uri", ""),
+        "stderr_uri": getattr(ref, "stderr_uri", ""),
+        "artifacts_uri": getattr(ref, "artifacts_uri", ""),
+    }
+
+async def _get_scope(engagement_id: str) -> ScopeValidator | None:
     await store.init()
     eng = await store.get_engagement(engagement_id)
     if not eng:
@@ -288,8 +332,14 @@ async def dns_recon(
         "domain": domain,
         "mode": mode,
         "records": records,
-        "raw": result.stdout if not records else "",
+        "raw": _parse_error_snippet(result.stdout) if not records else "",
         "duration_seconds": result.duration_seconds,
+        "call_id": result.call_id,
+        "output_ref": _output_ref_dict(result),
+        "full_size_bytes": {
+            "stdout": result.stdout_bytes_full,
+            "stderr": result.stderr_bytes_full,
+        },
     }
 
 
@@ -330,8 +380,14 @@ async def web_fingerprint(
     return {
         "url": url,
         "technologies": data,
-        "raw": result.stdout if not data else "",
+        "raw": _parse_error_snippet(result.stdout) if not data else "",
         "duration_seconds": result.duration_seconds,
+        "call_id": result.call_id,
+        "output_ref": _output_ref_dict(result),
+        "full_size_bytes": {
+            "stdout": result.stdout_bytes_full,
+            "stderr": result.stderr_bytes_full,
+        },
     }
 
 
@@ -358,9 +414,19 @@ async def waf_detect(
     try:
         data = json.loads(result.stdout)
     except Exception:
-        data = {"raw": result.stdout}
+        data = {"raw": _parse_error_snippet(result.stdout)}
 
-    return {"url": url, "waf_info": data, "duration_seconds": result.duration_seconds}
+    return {
+        "url": url,
+        "waf_info": data,
+        "duration_seconds": result.duration_seconds,
+        "call_id": result.call_id,
+        "output_ref": _output_ref_dict(result),
+        "full_size_bytes": {
+            "stdout": result.stdout_bytes_full,
+            "stderr": result.stderr_bytes_full,
+        },
+    }
 
 
 @mcp.tool()
@@ -400,9 +466,19 @@ async def web_vuln_scan(
     try:
         data = json.loads(result.stdout)
     except Exception:
-        data = {"raw": result.stdout}
+        data = {"raw": _parse_error_snippet(result.stdout)}
 
-    return {"url": url, "scan_results": data, "duration_seconds": result.duration_seconds}
+    return {
+        "url": url,
+        "scan_results": data,
+        "duration_seconds": result.duration_seconds,
+        "call_id": result.call_id,
+        "output_ref": _output_ref_dict(result),
+        "full_size_bytes": {
+            "stdout": result.stdout_bytes_full,
+            "stderr": result.stderr_bytes_full,
+        },
+    }
 
 
 @mcp.tool()

@@ -11,13 +11,18 @@ import json
 import os
 from base64 import b64decode
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 
 from ..deps import REPO_ROOT, _expected_creds, require_auth
+from ..rbac import ROLE_VIEWER, require_role
 
-router = APIRouter(prefix="/api/audit", tags=["audit"])
+router = APIRouter(
+    prefix="/api/audit",
+    tags=["audit"],
+    # The audit timeline is read-only; viewer is sufficient.
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 
 # Phase 4: per-IP cap on concurrent /api/audit/ws connections to keep a
@@ -42,15 +47,15 @@ def _audit_path() -> Path:
 def _read_lines(path: Path) -> list[str]:
     if not path.exists():
         return []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return [ln.rstrip("\n") for ln in f if ln.strip()]
 
 
 @router.get("")
 async def list_audit(
-    engagement_id: Optional[str] = Query(None),
-    actor: Optional[str] = Query(None),
-    action: Optional[str] = Query(None),
+    engagement_id: str | None = Query(None),
+    actor: str | None = Query(None),
+    action: str | None = Query(None),
     limit: int = Query(200, ge=1, le=2000),
     _user: str = Depends(require_auth),
 ):
@@ -77,8 +82,8 @@ async def list_audit(
 
 @router.get("/loop-counters")
 async def loop_counters(
-    engagement_id: Optional[str] = Query(None),
-    run_id: Optional[str] = Query(None),
+    engagement_id: str | None = Query(None),
+    run_id: str | None = Query(None),
     limit: int = Query(2000, ge=1, le=20000),
     _user: str = Depends(require_auth),
 ):
@@ -149,7 +154,7 @@ async def ws_audit(websocket: WebSocket):
             # auth frame immediately after the open handshake; longer windows
             # only help slow scanners hold connection slots.
             auth_msg = await asyncio.wait_for(websocket.receive_json(), timeout=3)
-        except (asyncio.TimeoutError, json.JSONDecodeError):
+        except (TimeoutError, json.JSONDecodeError):
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         expected = _expected_creds()
@@ -179,7 +184,7 @@ async def ws_audit(websocket: WebSocket):
 
         # Tail-follow: poll incrementale dell'offset di byte.
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 f.seek(0, os.SEEK_END)
                 while True:
                     line = f.readline()

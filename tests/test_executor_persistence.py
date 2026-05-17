@@ -5,7 +5,6 @@ import pytest
 
 from core.executor import ToolExecutor
 from core.tool_output_store import ToolOutputStore, reset_tool_output_store
-from core.models import Phase
 
 
 @pytest.fixture(autouse=True)
@@ -89,3 +88,50 @@ async def test_executor_no_persist_when_disabled(tmp_paths, monkeypatch):
     assert result.output_ref is None
     # call_id is still allocated (used as audit correlation key)
     assert result.call_id.startswith("call_")
+
+
+@pytest.mark.asyncio
+async def test_executor_no_persist_when_run_id_empty(tmp_paths, monkeypatch):
+    """Contract pin: an executor with empty run_id MUST NOT persist outputs.
+
+    The MCP servers historically constructed ToolExecutor() with no run_id;
+    this test guards against accidental regressions of that path. When the
+    orchestrator wants persistence on it must call ``set_run_id()`` (or
+    ``set_run_context_*`` MCP tool) explicitly.
+    """
+    # Make sure the env doesn't accidentally inject a run_id.
+    monkeypatch.delenv("SAP_RUN_ID", raising=False)
+    from core import executor as _ex
+    monkeypatch.setattr(_ex, "_allowed_tools", lambda: {"printf"})
+    monkeypatch.setattr(_ex, "_blocked_patterns", lambda: [])
+    monkeypatch.setattr(_ex, "_persist_outputs", lambda: True)
+
+    exe = ToolExecutor()
+    assert exe._run_id == ""
+    result = await exe.run("printf", ["%s", "noop"], engagement_id="eng")
+    # Persistence enabled by config but skipped because run_id is missing.
+    assert result.output_ref is None
+    assert result.run_id == ""
+
+
+@pytest.mark.asyncio
+async def test_executor_set_run_id_reenables_persistence(tmp_paths, monkeypatch):
+    """``set_run_id`` rebinds the executor to a real run; subsequent runs persist."""
+    monkeypatch.delenv("SAP_RUN_ID", raising=False)
+    from core import executor as _ex
+    monkeypatch.setattr(_ex, "_allowed_tools", lambda: {"printf"})
+    monkeypatch.setattr(_ex, "_blocked_patterns", lambda: [])
+    monkeypatch.setattr(_ex, "_persist_outputs", lambda: True)
+
+    exe = ToolExecutor()
+    # Before binding: no persistence.
+    r1 = await exe.run("printf", ["%s", "before"], engagement_id="eng")
+    assert r1.output_ref is None
+
+    exe.set_run_id("run_rebound")
+    r2 = await exe.run("printf", ["%s", "after"], engagement_id="eng")
+    assert r2.run_id == "run_rebound"
+    assert r2.output_ref is not None
+    assert r2.output_ref.stdout_uri.startswith(
+        f"sap://run/run_rebound/output/{r2.call_id}/stdout"
+    )

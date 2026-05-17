@@ -18,24 +18,24 @@ contextual remediation text and detection rules.
 import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
 
-from core.models import FindingCategory, Severity
+from core.models import Severity
 from core.session_store import SessionStore
 
 store = SessionStore(os.environ.get("SESSION_DB_PATH", "./sessions/assessments.db"))
 mcp   = FastMCP("pentest-blueteam")
+from core.time_utils import utcnow as _sap_utcnow
 from core.tool_output_store import get_tool_output_store
 from mcp_servers._response import register_resource_handlers
-from core.time_utils import utcnow as _sap_utcnow
+
 register_resource_handlers(mcp, get_tool_output_store, server_suffix="blueteam")
 
 
@@ -768,7 +768,7 @@ across **{len(hosts)} discovered hosts**.
             md += f"- {step}\n"
         md += "\n---\n\n"
 
-    md += f"""## MITRE ATT&CK Techniques Observed
+    md += """## MITRE ATT&CK Techniques Observed
 
 | Technique ID | Technique Name | Tactic |
 |--------------|---------------|--------|

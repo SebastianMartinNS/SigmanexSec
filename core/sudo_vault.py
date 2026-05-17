@@ -22,8 +22,7 @@ import ctypes
 import ctypes.util
 import os
 import time
-from typing import AsyncIterator, Optional
-
+from collections.abc import AsyncIterator
 
 # ─────────────────────────────────────────────
 # mlock helpers (Linux/macOS); silent no-op elsewhere.
@@ -99,7 +98,7 @@ class SudoVault:
         max_failures_before_lock: int = 3,
         inactivity_lock_seconds: int = 300,
     ):
-        self._buf: Optional[bytearray] = None
+        self._buf: bytearray | None = None
         self._expires_at: float = 0.0
         self._last_use: float = 0.0
         self._failures: int = 0
@@ -113,7 +112,7 @@ class SudoVault:
 
     # ── Public API ─────────────────────────────────────────────────────────
 
-    async def unlock(self, password: str, ttl_seconds: Optional[int] = None) -> None:
+    async def unlock(self, password: str, ttl_seconds: int | None = None) -> None:
         if not password:
             raise ValueError("Empty password")
         ttl = min(ttl_seconds or self._default_ttl, self._max_ttl)
@@ -231,7 +230,7 @@ class SudoVault:
 # Module-level singleton (the dashboard and the executor share it).
 # ─────────────────────────────────────────────
 
-_VAULT: Optional["SudoVault"] = None
+_VAULT: SudoVault | None = None
 _PROXY = None
 
 

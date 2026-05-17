@@ -7,7 +7,6 @@ import pytest
 
 from core.adaptive import PlaybookNotFound, PlaybookRouter, render_advisory
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 

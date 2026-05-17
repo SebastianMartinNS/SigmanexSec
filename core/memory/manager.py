@@ -17,14 +17,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
-from typing import Awaitable, Callable, Optional
 
 from core.memory.blocks import DEFAULT_BLOCKS, MemoryBlock, render_blocks
 from core.memory.embeddings import EmbeddingProvider, cosine
 from core.memory.store import MemoryStore
 from core.memory.summarizer import SummaryFn, summarize
-from core.memory.tokens import count_message_tokens, count_tokens
+from core.memory.tokens import count_message_tokens
 
 # Defaults; the orchestrator overrides them from config.yaml.
 DEFAULT_CTX_TOKENS = int(os.environ.get("SAP_CTX_BUDGET_TOKENS", "32000"))
@@ -44,9 +42,9 @@ class MemoryManager:
         engagement_id: str,
         run_id: str,
         *,
-        store: Optional[MemoryStore] = None,
-        embedder: Optional[EmbeddingProvider] = None,
-        summary_fn: Optional[SummaryFn] = None,
+        store: MemoryStore | None = None,
+        embedder: EmbeddingProvider | None = None,
+        summary_fn: SummaryFn | None = None,
         ctx_budget_tokens: int = DEFAULT_CTX_TOKENS,
         summary_trigger_tokens: int = DEFAULT_TRIGGER_TOKENS,
         keep_recent: int = DEFAULT_KEEP_RECENT,
@@ -72,7 +70,7 @@ class MemoryManager:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def initialize(self, engagement_record: Optional[dict] = None) -> None:
+    async def initialize(self, engagement_record: dict | None = None) -> None:
         async with self._init_lock:
             if self._initialized:
                 return
@@ -97,7 +95,7 @@ class MemoryManager:
 
     async def get_blocks(self) -> list[MemoryBlock]:
         rows = await self._store.list_blocks(self.engagement_id)
-        return [MemoryBlock(label=l, value=v, max_chars=c) for l, v, c in rows]
+        return [MemoryBlock(label=label, value=value, max_chars=cap) for label, value, cap in rows]
 
     async def edit_block(self, label: str, value: str) -> str:
         existing = await self._store.get_block(self.engagement_id, label)
@@ -123,7 +121,7 @@ class MemoryManager:
     # ------------------------------------------------------------------
 
     async def recall_search(
-        self, query: str, *, k: int = 10, role: Optional[str] = None
+        self, query: str, *, k: int = 10, role: str | None = None
     ) -> list[dict]:
         return await self._store.fts_search(
             self.engagement_id, query, k=k, role=role
@@ -134,7 +132,7 @@ class MemoryManager:
     # ------------------------------------------------------------------
 
     async def archival_insert(
-        self, text: str, *, source: Optional[str] = None, metadata: Optional[dict] = None
+        self, text: str, *, source: str | None = None, metadata: dict | None = None
     ) -> int:
         vec = self._embedder.embed(text)
         meta = json.dumps(metadata) if metadata else None
@@ -173,8 +171,8 @@ class MemoryManager:
         role: str,
         content: str,
         *,
-        tool_call_id: Optional[str] = None,
-        tool_name: Optional[str] = None,
+        tool_call_id: str | None = None,
+        tool_name: str | None = None,
     ) -> int:
         return await self._store.append_message(
             self.engagement_id,
@@ -189,7 +187,7 @@ class MemoryManager:
         self,
         *,
         system_prompt: str,
-        user_input: Optional[str] = None,
+        user_input: str | None = None,
         _compacted: bool = False,
     ) -> list[dict]:
         """Assemble the message list to send to the LLM this turn.

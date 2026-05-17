@@ -13,7 +13,6 @@ Locks in behavior added by the hardening pass:
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -83,6 +82,7 @@ async def test_exec_output_cap_kills_runaway(monkeypatch):
 def test_scope_dns_timeout_returns_quickly(monkeypatch):
     """A blocking resolver must not stall scope validation past the timeout."""
     import time
+
     import core.scope_validator as sv
 
     # Monkey-patch getaddrinfo to sleep 30s; our pool timeout is 3s default.

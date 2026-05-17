@@ -6,16 +6,21 @@ data; v1 returns a minimal Markdown summary on demand.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from ..deps import REPO_ROOT, get_store, require_auth
 from core.time_utils import utcnow as _sap_utcnow
 
-router = APIRouter(prefix="/api", tags=["reports"])
+from ..deps import REPO_ROOT, get_store, require_auth
+from ..rbac import ROLE_OPERATOR, ROLE_VIEWER, require_role
+
+router = APIRouter(
+    prefix="/api",
+    tags=["reports"],
+    # Downloading a generated report is viewer-level; generating one is
+    # operator-level (writes a new file on disk).
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 _REPORTS_DIR = REPO_ROOT / "sessions" / "reports"
 _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -31,7 +36,7 @@ def _md_summary(eng, hosts, findings, creds) -> str:
         f"- Phase: {eng.current_phase.value}",
         f"- Generated: {_sap_utcnow().isoformat()}Z",
         "",
-        f"## Scope",
+        "## Scope",
         f"- CIDRs: {', '.join(eng.scope_cidrs) or 'none'}",
         f"- Domains: {', '.join(eng.scope_domains) or 'none'}",
         f"- URLs: {', '.join(eng.scope_urls) or 'none'}",
@@ -47,7 +52,10 @@ def _md_summary(eng, hosts, findings, creds) -> str:
     return "\n".join(lines) + "\n"
 
 
-@router.post("/engagements/{engagement_id}/report")
+@router.post(
+    "/engagements/{engagement_id}/report",
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 async def generate_report(engagement_id: str, _user: str = Depends(require_auth)):
     store = get_store()
     await store.init()

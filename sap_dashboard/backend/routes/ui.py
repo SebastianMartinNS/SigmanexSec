@@ -14,17 +14,13 @@ relaxing the policy. No CDN requests.
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..deps import REPO_ROOT, get_config, require_auth
 from ..rbac import lookup_role
 from ..security import SESSION_COOKIE, safe_next_url, verify_session
-
 
 _TEMPLATES_DIR = REPO_ROOT / "sap_dashboard" / "frontend" / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -33,7 +29,7 @@ templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 router = APIRouter(tags=["ui"])
 
 
-def _current_user(request: Request) -> Optional[str]:
+def _current_user(request: Request) -> str | None:
     """Return the username from a valid session cookie, else None.
 
     Mirrors the cookie branch of `require_auth` but never raises — used

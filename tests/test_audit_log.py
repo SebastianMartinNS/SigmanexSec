@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from core.audit_log import AuditLog
 from core.models import AuditEntry
 

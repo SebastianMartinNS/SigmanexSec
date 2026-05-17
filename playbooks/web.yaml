@@ -8,6 +8,10 @@ fallback_chain:
   auth_failed: ["credential_recheck", "alt_tool_suggestion"]
   conn_refused: ["scope_recheck", "alt_tool_suggestion"]
   rate_limited: ["backoff", "alt_tool_suggestion"]
+  # ``empty_output`` fires when a scanner returned rc=0 with no findings
+  # (see core/adaptive/repetition.py + mcp_servers/_response.py).
+  # Order: probe reachability before reaching for another scanner.
+  empty_output: ["web_fingerprint", "alt_tool_suggestion", "scope_recheck", "abort"]
 phases:
   reconnaissance:
     - tool: web_fingerprint

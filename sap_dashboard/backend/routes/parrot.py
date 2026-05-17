@@ -6,12 +6,22 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.parrot_catalog import (
-    binary_available, gap_report, get_descriptor, list_by_category, load_catalog,
+    binary_available,
+    gap_report,
+    get_descriptor,
+    list_by_category,
+    load_catalog,
 )
 
 from ..deps import require_auth
+from ..rbac import ROLE_VIEWER, require_role
 
-router = APIRouter(prefix="/api/parrot", tags=["parrot"])
+router = APIRouter(
+    prefix="/api/parrot",
+    tags=["parrot"],
+    # Browsing the tool catalogue is read-only; viewer is sufficient.
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 
 @router.get("/tools")

@@ -21,7 +21,6 @@ from ..security import (
     session_cookie_kwargs,
 )
 
-
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -46,8 +45,8 @@ async def login(request: Request, response: Response):
         )
     try:
         body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="invalid JSON body")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON body") from exc
     user = str(body.get("username", ""))
     pwd  = str(body.get("password", ""))
 

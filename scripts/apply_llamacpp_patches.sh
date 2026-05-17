@@ -4,14 +4,35 @@
 #
 # Idempotent: re-running on a clean tree re-applies; on an already-patched
 # tree, `git apply --check` will skip with a clear error.
+#
+# Flags:
+#   --check    Dry-run: verify every patch applies cleanly (or is already
+#              applied) WITHOUT mutating the tree. Exits 0 on success,
+#              non-zero on the first patch that does not apply. Used by
+#              .github/workflows/ci.yml on submodule / patches changes.
 set -euo pipefail
+
+CHECK_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) CHECK_ONLY=1 ;;
+    -h|--help)
+      sed -n '1,/^set -euo/p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LLAMA_DIR="$REPO_ROOT/llama.cpp"
 PATCH_DIR="$REPO_ROOT/patches/llama.cpp"
 PINNED_COMMIT="0beb8db3a0037b51f8247ac657b7655ab68fa9f0"
 
-if [[ ! -d "$LLAMA_DIR/.git" ]]; then
+if [[ ! -e "$LLAMA_DIR/.git" ]]; then
   echo "ERROR: $LLAMA_DIR is not a git checkout." >&2
   echo "Run: git submodule update --init --recursive" >&2
   exit 1
@@ -34,8 +55,12 @@ cd "$LLAMA_DIR"
 for p in "${patches[@]}"; do
   name="$(basename "$p")"
   if git apply --check "$p" 2>/dev/null; then
-    echo "applying $name"
-    git apply "$p"
+    if (( CHECK_ONLY )); then
+      echo "ok: $name would apply cleanly"
+    else
+      echo "applying $name"
+      git apply "$p"
+    fi
   elif git apply --check --reverse "$p" 2>/dev/null; then
     echo "skipping $name (already applied)"
   else
@@ -44,6 +69,12 @@ for p in "${patches[@]}"; do
     exit 2
   fi
 done
+
+if (( CHECK_ONLY )); then
+  echo
+  echo "Dry-run complete: every patch applies cleanly against $current."
+  exit 0
+fi
 
 echo
 echo "All patches in sync. Now rebuild the WebUI bundle and llama-server:"

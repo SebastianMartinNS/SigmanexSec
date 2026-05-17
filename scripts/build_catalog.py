@@ -101,10 +101,14 @@ def S(props, required=None):
     return {"type": "object", "properties": props, "required": required or []}
 
 
-P_str = lambda **kw: {"type": "string", **kw}
-P_int = lambda **kw: {"type": "integer", **kw}
-P_bool = lambda **kw: {"type": "boolean", **kw}
-P_enum = lambda values, **kw: {"type": "string", "enum": values, **kw}
+def P_str(**kw):
+    return {"type": "string", **kw}
+def P_int(**kw):
+    return {"type": "integer", **kw}
+def P_bool(**kw):
+    return {"type": "boolean", **kw}
+def P_enum(values, **kw):
+    return {"type": "string", "enum": values, **kw}
 
 
 # Common interaction protocols

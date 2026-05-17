@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import json
 
 import pytest
 from pydantic import ValidationError
@@ -28,7 +27,6 @@ from core.target_validator import (
     normalize_social_handle,
     normalize_username,
 )
-
 
 # ── Normalizers ─────────────────────────────────────────────────────────────
 

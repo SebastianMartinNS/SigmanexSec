@@ -8,7 +8,7 @@ the recall store so the agent can still ``recall_search`` them.
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
 
 SummaryFn = Callable[[str], Awaitable[str]]
 
@@ -35,7 +35,7 @@ def format_messages_for_summary(messages: list[dict]) -> str:
 
 async def summarize(
     messages: list[dict],
-    summary_fn: Optional[SummaryFn] = None,
+    summary_fn: SummaryFn | None = None,
     *,
     prompt: str = DEFAULT_PROMPT,
 ) -> str:

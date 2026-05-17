@@ -15,8 +15,8 @@ Why a separate helper:
 from __future__ import annotations
 
 import logging
-from enum import Enum
-from typing import Any, Optional
+from enum import StrEnum
+from typing import Any
 
 from core.audit_log import AuditLog
 from core.models import AuditEntry
@@ -24,7 +24,7 @@ from core.models import AuditEntry
 _log = logging.getLogger(__name__)
 
 
-class DecisionKind(str, Enum):
+class DecisionKind(StrEnum):
     REPETITION_BLOCKED = "decision.repetition_blocked"
     REPETITION_PIVOT = "decision.repetition_pivot"
     SCENARIO_CLASSIFIED = "decision.scenario_classified"
@@ -36,12 +36,12 @@ class DecisionKind(str, Enum):
 
 
 async def emit_decision(
-    audit: Optional[AuditLog],
+    audit: AuditLog | None,
     *,
     engagement_id: str,
     kind: DecisionKind,
     summary: str,
-    details: Optional[dict[str, Any]] = None,
+    details: dict[str, Any] | None = None,
     target: str = "",
     actor: str = "agent",
 ) -> None:

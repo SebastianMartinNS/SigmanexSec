@@ -1,8 +1,6 @@
 """Argument-aware sudo detection in core.executor._needs_sudo."""
 from __future__ import annotations
 
-import pytest
-
 from core import executor as ex
 
 

@@ -17,7 +17,6 @@ import asyncio
 import struct
 import time
 from pathlib import Path
-from typing import Optional
 
 import aiosqlite
 
@@ -89,7 +88,7 @@ def unpack_embedding(blob: bytes, dim: int) -> list[float]:
 class MemoryStore:
     """Async facade around aiosqlite for the memory subsystem."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self._db_path = str(db_path) if db_path else str(memory_db_path())
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_lock = asyncio.Lock()
@@ -124,7 +123,7 @@ class MemoryStore:
 
     async def get_block(
         self, engagement_id: str, label: str
-    ) -> Optional[tuple[str, int]]:
+    ) -> tuple[str, int] | None:
         await self.init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
@@ -153,8 +152,8 @@ class MemoryStore:
         role: str,
         content: str,
         *,
-        tool_call_id: Optional[str] = None,
-        tool_name: Optional[str] = None,
+        tool_call_id: str | None = None,
+        tool_name: str | None = None,
     ) -> int:
         await self.init()
         async with aiosqlite.connect(self._db_path) as db:
@@ -199,7 +198,9 @@ class MemoryStore:
         placeholders = ",".join("?" * len(ids))
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                f"UPDATE messages SET summarized=1 WHERE id IN ({placeholders})", ids
+                # noqa: S608 — placeholders is a generated "?,?,?" string, no user data interpolated
+                f"UPDATE messages SET summarized=1 WHERE id IN ({placeholders})",  # noqa: S608
+                ids,
             )
             await db.commit()
 
@@ -209,7 +210,7 @@ class MemoryStore:
         query: str,
         *,
         k: int = 10,
-        role: Optional[str] = None,
+        role: str | None = None,
     ) -> list[dict]:
         await self.init()
         sql = (
@@ -232,7 +233,8 @@ class MemoryStore:
                 # FTS5 not compiled in — degrade to LIKE
                 like = f"%{query}%"
                 async with db.execute(
-                    "SELECT id,seq,role,content,ts FROM messages "
+                    # noqa: S608 — only literal templates and "AND role=?" placeholder are appended
+                    "SELECT id,seq,role,content,ts FROM messages "  # noqa: S608
                     "WHERE engagement_id=? AND content LIKE ? "
                     + ("AND role=? " if role else "")
                     + "ORDER BY seq DESC LIMIT ?",
@@ -249,8 +251,8 @@ class MemoryStore:
         text: str,
         embedding: list[float],
         *,
-        source: Optional[str] = None,
-        metadata: Optional[str] = None,
+        source: str | None = None,
+        metadata: str | None = None,
     ) -> int:
         await self.init()
         blob = pack_embedding(embedding) if embedding else None
@@ -265,7 +267,7 @@ class MemoryStore:
             return cur.lastrowid
 
     async def list_archival(
-        self, engagement_id: Optional[str] = None, limit: int = 5000
+        self, engagement_id: str | None = None, limit: int = 5000
     ) -> list[dict]:
         await self.init()
         async with aiosqlite.connect(self._db_path) as db:

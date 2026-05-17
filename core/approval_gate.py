@@ -19,9 +19,9 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
-
+from typing import Any
 
 # ─────────────────────────────────────────────
 # Data shapes
@@ -61,7 +61,7 @@ class ApprovalGate:
     def __init__(
         self,
         timeout_seconds: int = 300,
-        on_pending: Optional[Callable[[ApprovalRequest], None]] = None,
+        on_pending: Callable[[ApprovalRequest], None] | None = None,
     ):
         self._timeout = timeout_seconds
         self._on_pending = on_pending
@@ -75,9 +75,9 @@ class ApprovalGate:
         self,
         reason: str,
         summary: str,
-        details: Optional[dict[str, Any]] = None,
-        gate_id: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
+        details: dict[str, Any] | None = None,
+        gate_id: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> ApprovalDecision:
         gid = gate_id or f"g_{uuid.uuid4().hex[:12]}"
         req = ApprovalRequest(
@@ -99,7 +99,7 @@ class ApprovalGate:
         timeout = timeout_seconds if timeout_seconds is not None else self._timeout
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await self._cleanup(gid)
             return ApprovalDecision(
                 gate_id=gid, action="deny",

@@ -9,9 +9,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..deps import get_config, require_auth
+from ..rbac import ROLE_ADMIN, ROLE_VIEWER, require_role
 from ..schemas import SettingsPatch, SettingsView
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["settings"],
+    # GETting the merged config is viewer-level; PATCH overrides to admin
+    # so a malicious operator cannot reconfigure quotas or feature flags.
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 _OVERLAY: dict = {}  # in-memory diff applied on top of disk config
 
@@ -37,7 +44,11 @@ async def get_settings(_user: str = Depends(require_auth)):
     )
 
 
-@router.patch("", response_model=SettingsView)
+@router.patch(
+    "",
+    response_model=SettingsView,
+    dependencies=[Depends(require_role(ROLE_ADMIN))],
+)
 async def patch_settings(body: SettingsPatch, _user: str = Depends(require_auth)):
     if body.section not in ("llm", "agent", "executor", "sudo"):
         raise HTTPException(status_code=400, detail="unknown section")

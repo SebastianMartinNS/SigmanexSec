@@ -28,7 +28,7 @@ def test_valid_targets(raw, kind, value):
         "::1",
         "localhost",
         "169.254.169.254",
-        "0.0.0.0",
+        "0.0.0.0",  # noqa: S104 — test input: the validator must REJECT bind-to-any
         "224.0.0.1",
     ],
 )

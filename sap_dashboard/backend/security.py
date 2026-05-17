@@ -19,7 +19,6 @@ from pathlib import Path
 
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 
-
 # ── Cookie names & TTL ──────────────────────────────────────────────────────
 
 SESSION_COOKIE = "sap_session"
@@ -91,7 +90,7 @@ def issue_session(username: str, iat: int | None = None) -> str:
     """
     if iat is None:
         iat = int(time.time())
-    raw = f"{username}|{iat}".encode("utf-8")
+    raw = f"{username}|{iat}".encode()
     return _signer().sign(raw).decode("ascii")
 
 

@@ -29,7 +29,6 @@ import json
 import os
 import shutil
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -37,12 +36,19 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.models import AuditEntry
-
-from ..deps import REPO_ROOT, get_audit, get_store, require_auth
-from ..rbac import ROLE_ADMIN, require_role
 from core.time_utils import utcnow as _sap_utcnow
 
-router = APIRouter(prefix="/api", tags=["export"])
+from ..deps import REPO_ROOT, get_audit, get_store, require_auth
+from ..rbac import ROLE_ADMIN, ROLE_OPERATOR, require_role
+
+router = APIRouter(
+    prefix="/api",
+    tags=["export"],
+    # Bundle export contains hosts/findings/credentials of a real
+    # engagement; even the redacted form is operator-level. Reset
+    # endpoints below override to admin.
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 
 _RUNS_DIR     = REPO_ROOT / "sessions" / "runs"
 _REPORTS_DIR  = REPO_ROOT / "sessions" / "reports"
@@ -146,8 +152,10 @@ def _zip_bundle(engagement_id: str, include_secrets: bool, eng, hosts, findings,
         for c in creds:
             d = c.model_dump(mode="json")
             if not include_secrets:
-                if d.get("password"):    d["password"]    = "[REDACTED]"
-                if d.get("hash_value"):  d["hash_value"]  = "[REDACTED]"
+                if d.get("password"):
+                    d["password"] = "[REDACTED]"  # noqa: S105 — literal redaction placeholder, not a real password
+                if d.get("hash_value"):
+                    d["hash_value"] = "[REDACTED]"
             cred_dump.append(d)
         zf.writestr("credentials.json", json.dumps(cred_dump, indent=2, default=str))
 
@@ -238,7 +246,8 @@ def _filter_audit_file(keep_predicate) -> int:
             try:
                 obj = json.loads(s)
             except Exception:
-                dst.write(line); continue
+                dst.write(line)
+                continue
             if keep_predicate(obj):
                 dst.write(line)
             else:

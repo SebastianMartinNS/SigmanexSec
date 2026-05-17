@@ -24,11 +24,10 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 from core.adaptive.settings import AdaptiveSettings
 from core.models import Finding
-
 
 VerificationOutcome = Literal["confirmed", "drift", "inconclusive"]
 FeedbackKind = Literal["confirm", "refute", "note"]
@@ -70,7 +69,9 @@ def build_manifest(finding: Finding) -> FindingManifest:
         "tool": (finding.tool_used or "").strip().lower(),
     }
     blob = "|".join(f"{k}={v}" for k, v in parts.items())
-    digest = hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+    # sha1 here generates a deterministic short id for finding deduplication;
+    # not a security primitive — collision attacks are out of scope.
+    digest = hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]  # noqa: S324
     return FindingManifest(finding_id=finding.id, digest=digest, components=parts)
 
 
@@ -119,7 +120,7 @@ def apply_operator_feedback(
     kind: FeedbackKind,
     settings: AdaptiveSettings,
     operator: str = "operator",
-    comment: Optional[str] = None,
+    comment: str | None = None,
 ) -> ConfidenceUpdate:
     """Map operator feedback to a ConfidenceUpdate.
 

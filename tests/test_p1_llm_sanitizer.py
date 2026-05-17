@@ -3,7 +3,7 @@ P1.10 — LLM tool-output sanitizer.
 """
 from __future__ import annotations
 
-from core.llm_io_sanitizer import sanitize_tool_output, DEFAULT_MAX_BYTES
+from core.llm_io_sanitizer import DEFAULT_MAX_BYTES, sanitize_tool_output
 
 
 def test_strips_control_chars_keeps_newlines():

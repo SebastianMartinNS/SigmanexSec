@@ -8,18 +8,16 @@ also exposed here so the dashboard can resolve them.
 from __future__ import annotations
 
 import asyncio
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 from agent.orchestrator import Orchestrator
 from agent.run_modes import RunMode
 from core.approval_gate import ApprovalGate, AutoApproveGate
+from core.time_utils import utcnow as _sap_utcnow
 
 from .ws import get_broker
-from core.time_utils import utcnow as _sap_utcnow
 
 
 @dataclass
@@ -30,13 +28,13 @@ class RunHandle:
     mode: str
     state: str = "running"  # running | paused | done | error | killed
     started_at: datetime = field(default_factory=_sap_utcnow)
-    finished_at: Optional[datetime] = None
+    finished_at: datetime | None = None
     iterations: int = 0
-    error: Optional[str] = None
-    final_text: Optional[str] = None
-    task: Optional[asyncio.Task] = None
-    gate: Optional[ApprovalGate] = None
-    pause_event: Optional[asyncio.Event] = None
+    error: str | None = None
+    final_text: str | None = None
+    task: asyncio.Task | None = None
+    gate: ApprovalGate | None = None
+    pause_event: asyncio.Event | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -61,7 +59,7 @@ class RunManager:
     def list(self) -> list[RunHandle]:
         return list(self._runs.values())
 
-    def get(self, run_id: str) -> Optional[RunHandle]:
+    def get(self, run_id: str) -> RunHandle | None:
         return self._runs.get(run_id)
 
     async def start(
@@ -201,7 +199,7 @@ class RunManager:
         return h.gate.resolve(gate_id, action=action, reason=reason, decided_by=user)
 
 
-_MGR: Optional[RunManager] = None
+_MGR: RunManager | None = None
 
 
 def get_runs() -> RunManager:

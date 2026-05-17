@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -111,14 +111,14 @@ class PlaybookRouter:
         cls._CACHE.clear()
 
     @classmethod
-    def list_scenarios(cls, base_dir: Optional[Path] = None) -> list[str]:
+    def list_scenarios(cls, base_dir: Path | None = None) -> list[str]:
         d = base_dir or _PLAYBOOK_DIR
         if not d.is_dir():
             return []
         return sorted(p.stem for p in d.glob("*.yaml"))
 
     @classmethod
-    def load(cls, scenario: str, *, base_dir: Optional[Path] = None) -> Playbook:
+    def load(cls, scenario: str, *, base_dir: Path | None = None) -> Playbook:
         cache_key = f"{base_dir or _PLAYBOOK_DIR}::{scenario}"
         if cache_key in cls._CACHE:
             return cls._CACHE[cache_key]
@@ -136,7 +136,7 @@ class PlaybookRouter:
         return pb
 
     @classmethod
-    def load_or_none(cls, scenario: str, *, base_dir: Optional[Path] = None) -> Optional[Playbook]:
+    def load_or_none(cls, scenario: str, *, base_dir: Path | None = None) -> Playbook | None:
         try:
             return cls.load(scenario, base_dir=base_dir)
         except PlaybookNotFound:

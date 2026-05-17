@@ -16,13 +16,10 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
 from core.models import Engagement, EngagementCreate
-from core.session_store import SessionStore
-
 
 # ── Parser unit tests ────────────────────────────────────────────────────────
 
@@ -109,7 +106,6 @@ def _patch_exe_run(monkeypatch, stdout: str, returncode: int = 0):
     would silently succeed. We also bypass the binary allowlist.
     """
     from mcp_servers import osint_server as srv
-    from core.scope_validator import ScopeViolation
 
     async def fake_run(self, *args, **kwargs):
         identity = kwargs.get("identity_target")

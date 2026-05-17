@@ -1,7 +1,7 @@
 """Phase 5: orchestrator smart truncation."""
 from __future__ import annotations
 
-from agent.orchestrator import Orchestrator, _CALLBACK_RESULT_CAP
+from agent.orchestrator import _CALLBACK_RESULT_CAP, Orchestrator
 
 
 def test_truncate_under_cap_unchanged():

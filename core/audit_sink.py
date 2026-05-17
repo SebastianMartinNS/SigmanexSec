@@ -28,7 +28,6 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ class BaseSink(ABC):
     @abstractmethod
     def emit(self, line: str) -> None: ...
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027 — intentional no-op default; concrete sinks override only if they hold state
         """Optional graceful shutdown."""
 
 
@@ -81,7 +80,7 @@ class SyslogConfig:
     transport: str = "tls"   # one of: udp / tcp / tls
     facility: int = 13       # log_audit
     severity: int = 5        # notice
-    cafile: Optional[str] = None
+    cafile: str | None = None
     timeout_s: float = 2.0
 
 
@@ -95,11 +94,11 @@ class SyslogSink(BaseSink):
 
     def __init__(self, cfg: SyslogConfig):
         self._cfg = cfg
-        self._sock: Optional[socket.socket] = None
+        self._sock: socket.socket | None = None
         self._lock = threading.Lock()
         self._hostname = socket.gethostname()
 
-    def _connect(self) -> Optional[socket.socket]:
+    def _connect(self) -> socket.socket | None:
         c = self._cfg
         try:
             if c.transport == "udp":

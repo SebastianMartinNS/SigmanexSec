@@ -1711,12 +1711,11 @@
         type: string
       severity:
         type: string
-        enum:
-        - info
-        - low
-        - medium
-        - high
-        - critical
+        description: |
+          One severity level or a comma-separated list (e.g.
+          "high" or "critical,high,medium"). Maps to nuclei's
+          `-severity` flag which itself accepts CSV.
+        pattern: ^(info|low|medium|high|critical)(,(info|low|medium|high|critical))*$
       templates:
         type: string
         description: e.g. cves/2024/, exposures/

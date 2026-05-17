@@ -13,20 +13,27 @@ LLM sees via MCP.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core.interactive_session import (
-    SessionDead, SessionError, SessionLimitReached,
-    SessionNotFound, get_manager,
+    SessionDead,
+    SessionError,
+    SessionLimitReached,
+    SessionNotFound,
+    get_manager,
 )
 from core.scope_validator import ScopeValidator
 
 from ..deps import get_store, require_auth
+from ..rbac import ROLE_OPERATOR, require_role
 
-router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+router = APIRouter(
+    prefix="/api/sessions",
+    tags=["sessions"],
+    # Interactive PTY sessions spawn offensive tools — operator floor.
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 
 
 # ── Request models ────────────────────────────────────────────────────────
@@ -39,7 +46,7 @@ class StartReq(BaseModel):
 
 class SendReq(BaseModel):
     text: str
-    expect_prompt: Optional[str] = None
+    expect_prompt: str | None = None
     timeout: float = 15.0
 
 
@@ -49,7 +56,7 @@ class ReadReq(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
-async def _scope_for(engagement_id: str) -> Optional[ScopeValidator]:
+async def _scope_for(engagement_id: str) -> ScopeValidator | None:
     store = get_store()
     await store.init()
     eng = await store.get_engagement(engagement_id)
@@ -81,9 +88,9 @@ async def start_session(req: StartReq, user: str = Depends(require_auth)):
             args=req.args, actor=f"user:{user}", scope=scope,
         )
     except SessionLimitReached as e:
-        raise HTTPException(429, f"limit: {e}")
+        raise HTTPException(429, f"limit: {e}") from e
     except SessionError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/{session_id}/send")
@@ -96,11 +103,11 @@ async def send_session(
             expect_prompt=req.expect_prompt, timeout=req.timeout,
         )
     except SessionNotFound as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404, str(e)) from e
     except SessionDead as e:
-        raise HTTPException(410, str(e))
+        raise HTTPException(410, str(e)) from e
     except SessionError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/{session_id}/read")
@@ -110,9 +117,9 @@ async def read_session(
     try:
         return await get_manager().read(session_id, timeout=req.timeout)
     except SessionNotFound as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404, str(e)) from e
     except SessionError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.delete("/{session_id}")
@@ -120,9 +127,9 @@ async def close_session(session_id: str, _user: str = Depends(require_auth)):
     try:
         return await get_manager().close(session_id)
     except SessionNotFound as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404, str(e)) from e
     except SessionError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/reap")

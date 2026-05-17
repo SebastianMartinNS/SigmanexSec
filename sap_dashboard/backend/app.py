@@ -9,13 +9,12 @@ Or via the CLI:
 """
 from __future__ import annotations
 
-import os
-import sys
 import asyncio
+import os
 import secrets
+import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 _REPO = Path(__file__).resolve().parent.parent.parent
 if str(_REPO) not in sys.path:
@@ -25,6 +24,15 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from core.logging import (
+    CorrelationIdMiddleware,
+    configure_logging,
+    get_logger,
+)
+
+configure_logging(service="dashboard")
+_log = get_logger("dashboard.app")
 
 
 # ── Request body size limit ────────────────────────────────────────────────
@@ -109,7 +117,11 @@ class _RateLimitMiddleware(BaseHTTPMiddleware):
     reverse proxy keeps per-peer accounting. Static asset paths and the
     WebSocket route are skipped — the WS handler has its own per-IP cap.
     """
-    _SKIP_PREFIXES = ("/vendor/", "/static/", "/ui/", "/api/audit/ws", "/openapi.json", "/docs", "/_404")
+    _SKIP_PREFIXES = (
+        "/vendor/", "/static/", "/ui/", "/api/audit/ws",
+        "/openapi.json", "/docs", "/_404",
+        "/healthz", "/readyz",
+    )
     # Window of 60s; bursts within the window count linearly.
     _WINDOW_S = 60.0
     # `{ip: deque[timestamps]}` — capped at the limit so we never grow.
@@ -253,16 +265,32 @@ class _CSRFMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(status_code=403, content={"error": "CSRF token missing or invalid"})
         return await call_next(request)
 
-from .deps import get_config, REPO_ROOT
-from .routes import audit, auth, engagements, export, kpi, outputs, parrot, reports, runs, sessions, settings, sudo, ui
-
-
 # ── Lifespan: storage GC scheduler ─────────────────────────────────────────
 from contextlib import asynccontextmanager
 
+from .deps import REPO_ROOT, get_config
+from .routes import (
+    audit,
+    auth,
+    engagements,
+    export,
+    health,
+    kpi,
+    outputs,
+    parrot,
+    reports,
+    runs,
+    sessions,
+    settings,
+    sudo,
+    ui,
+)
+from .sso import oidc as sso_oidc
+from .sso import saml as sso_saml
+
 
 @asynccontextmanager
-async def _lifespan(app_: "FastAPI"):
+async def _lifespan(app_: FastAPI):
     # P2.4 — apply process-level secret protections as early as possible.
     try:
         from core.process_hardening import harden_process
@@ -270,7 +298,7 @@ async def _lifespan(app_: "FastAPI"):
     except Exception:
         pass
 
-    gc_task: Optional[asyncio.Task] = None
+    gc_task: asyncio.Task | None = None
     if os.environ.get("SAP_DISABLE_STORAGE_GC", "").lower() not in ("1", "true", "yes"):
         try:
             from core.storage_gc import start_gc_scheduler
@@ -380,9 +408,20 @@ class _SlidingSessionMiddleware(BaseHTTPMiddleware):
 # CSRF middleware so it executes outermost (last to wrap response).
 app.add_middleware(_SlidingSessionMiddleware)
 
+# CorrelationIdMiddleware is registered LAST so it runs FIRST in the
+# request flow and wraps the response LAST. This guarantees every other
+# middleware (rate limit, body limit, security headers, CSRF, auth) can
+# already see the bound correlation id when they log.
+app.add_middleware(CorrelationIdMiddleware)
+
 
 # ── Routers ─────────────────────────────────────────────────────────────────
+app.include_router(health.router)
 app.include_router(auth.router)
+# SSO routers are mounted unconditionally; each endpoint refuses with a
+# clear 404/503 when SAP_SSO_PROVIDER is not configured for that scheme.
+app.include_router(sso_oidc.router)
+app.include_router(sso_saml.router)
 app.include_router(engagements.router)
 app.include_router(runs.router)
 app.include_router(sudo.router)

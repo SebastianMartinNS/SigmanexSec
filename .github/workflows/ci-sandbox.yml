@@ -1,0 +1,74 @@
+name: SAP — sandbox escape tests
+
+# Real bwrap escape tests require user namespaces which are not reliably
+# available on GitHub-hosted runners. We run them on the project's
+# self-hosted runner (`self-hosted-userns` label, provisioned per
+# docs/CI_SELF_HOSTED.md) which has `kernel.unprivileged_userns_clone=1`
+# and bubblewrap pre-installed.
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'core/sandbox.py'
+      - 'core/executor.py'
+      - 'deploy/sandbox/profiles/**'
+      - 'tests/test_sandbox_*'
+      - '.github/workflows/ci-sandbox.yml'
+  pull_request:
+    paths:
+      - 'core/sandbox.py'
+      - 'core/executor.py'
+      - 'deploy/sandbox/profiles/**'
+      - 'tests/test_sandbox_*'
+      - '.github/workflows/ci-sandbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-sandbox-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sandbox-escape:
+    name: bwrap escape suite
+    runs-on: [self-hosted, userns]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm sandbox prerequisites
+        run: |
+          which bwrap || (echo "::error::bwrap missing" && exit 1)
+          test "$(cat /proc/sys/kernel/unprivileged_userns_clone)" = "1" \
+            || (echo "::error::unprivileged_userns_clone=0" && exit 1)
+          bwrap --unshare-user --ro-bind /usr /usr -- true \
+            || (echo "::error::bwrap probe failed" && exit 1)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install runtime + test deps
+        run: |
+          pip install --require-hashes -r requirements.lock
+          pip install 'pytest>=8.0.0' 'pytest-asyncio>=0.23.0' 'pytest-cov>=5.0.0' 'hypothesis>=6.100.0'
+
+      - name: Run sandbox marker (escape probes)
+        env:
+          PYTHONPATH: .
+          SAP_SANDBOX: "on"
+        run: |
+          pytest tests/test_sandbox_bwrap.py -v -m sandbox \
+            --junitxml=sandbox-results.xml
+
+      - name: Upload junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-results
+          path: sandbox-results.xml
+          retention-days: 30

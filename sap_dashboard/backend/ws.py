@@ -16,10 +16,9 @@ import json
 import time
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .deps import REPO_ROOT
-
 
 _EVENT_RING_SIZE = 500
 
@@ -75,7 +74,7 @@ class RunBroker:
         return [ev for ev in self._ring[run_id] if ev["seq"] > from_seq]
 
 
-_BROKER: Optional[RunBroker] = None
+_BROKER: RunBroker | None = None
 
 
 def get_broker() -> RunBroker:

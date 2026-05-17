@@ -8,9 +8,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.models import Engagement, EngagementStatus, Phase
 
 from ..deps import get_store, require_auth
+from ..rbac import ROLE_OPERATOR, ROLE_VIEWER, require_role
 from ..schemas import EngagementCreateBody, EngagementPatch, EngagementSummary
 
-router = APIRouter(prefix="/api/engagements", tags=["engagements"])
+router = APIRouter(
+    prefix="/api/engagements",
+    tags=["engagements"],
+    # Listing and reading engagement state is viewer-level. POST (create),
+    # PATCH (mutate scope/status/phase), and credential reads are bumped
+    # to operator below.
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 
 @router.get("", response_model=list[EngagementSummary])
@@ -28,7 +36,11 @@ async def list_engagements(_user: str = Depends(require_auth)):
     ]
 
 
-@router.post("", response_model=Engagement)
+@router.post(
+    "",
+    response_model=Engagement,
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 async def create_engagement(body: EngagementCreateBody, _user: str = Depends(require_auth)):
     store = get_store()
     await store.init()
@@ -46,7 +58,11 @@ async def get_engagement(engagement_id: str, _user: str = Depends(require_auth))
     return eng
 
 
-@router.patch("/{engagement_id}", response_model=Engagement)
+@router.patch(
+    "/{engagement_id}",
+    response_model=Engagement,
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 async def patch_engagement(
     engagement_id: str, body: EngagementPatch, _user: str = Depends(require_auth)
 ):
@@ -59,12 +75,12 @@ async def patch_engagement(
         try:
             await store.update_engagement_status(engagement_id, EngagementStatus(body.status))
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"invalid status: {e}")
+            raise HTTPException(status_code=400, detail=f"invalid status: {e}") from e
     if body.current_phase is not None:
         try:
             await store.update_engagement_phase(engagement_id, Phase(body.current_phase))
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"invalid phase: {e}")
+            raise HTTPException(status_code=400, detail=f"invalid phase: {e}") from e
     return await store.get_engagement(engagement_id)
 
 
@@ -82,7 +98,10 @@ async def list_findings(engagement_id: str, _user: str = Depends(require_auth)):
     return await store.get_findings(engagement_id)
 
 
-@router.get("/{engagement_id}/credentials")
+@router.get(
+    "/{engagement_id}/credentials",
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 async def list_credentials(
     engagement_id: str, user: str = Depends(require_auth)
 ):
@@ -91,6 +110,7 @@ async def list_credentials(
     creds = await store.get_credentials(engagement_id)
     # Audit credential reads
     from core.models import AuditEntry
+
     from ..deps import get_audit
     await get_audit().write(AuditEntry(
         engagement_id=engagement_id,

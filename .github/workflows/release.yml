@@ -1,0 +1,253 @@
+name: SAP — Release (signed wheel + sdist + SBOM + SLSA-3 provenance)
+
+# Triggered by pushing a vX.Y.Z tag from the SigmanexSec org. Builds the
+# Python distribution, generates a CycloneDX + SPDX SBOM, signs every
+# artifact with cosign keyless (Sigstore Fulcio + OIDC token from the
+# GitHub Actions workflow), and emits SLSA-3 provenance via the
+# slsa-framework/slsa-github-generator. Container artefacts are
+# explicitly out of scope for the v2.3 release pipeline — they ship in
+# Fase 4.1 (v3.0). See plan §F2.5.
+#
+# Verification by downstream consumers:
+#
+#   cosign verify-blob \
+#     --certificate sap_pentest-<tag>.whl.pem \
+#     --signature   sap_pentest-<tag>.whl.sig \
+#     --certificate-identity-regexp 'https://github.com/SigmanexSec/SigmanexSec/.github/workflows/release.yml@refs/tags/v.*' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     sap_pentest-<tag>.whl
+#
+#   slsa-verifier verify-artifact sap_pentest-<tag>.whl \
+#     --provenance-path sap_pentest-<tag>.intoto.jsonl \
+#     --source-uri github.com/SigmanexSec/SigmanexSec
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write     # gh release create
+  id-token: write     # OIDC token for cosign keyless + SLSA generator
+  attestations: write # GitHub attestations API for the SLSA bundle
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  build:
+    name: Build wheel + sdist
+    runs-on: ubuntu-latest
+    outputs:
+      artefact-name: ${{ steps.collect.outputs.artefact-name }}
+      digests: ${{ steps.collect.outputs.digests }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'build>=1.2.0'
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Compute base64-encoded SHA256 digests for SLSA provenance
+        id: collect
+        run: |
+          set -euo pipefail
+          digests=""
+          for f in dist/*; do
+            sha=$(sha256sum "$f" | awk '{print $1}')
+            name=$(basename "$f")
+            digests="${digests}${sha}  ${name}"$'\n'
+          done
+          encoded=$(printf '%s' "$digests" | base64 -w0)
+          {
+            echo "artefact-name=dist"
+            echo "digests=${encoded}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload dist artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 90
+
+  sbom:
+    name: Generate SBOM (SPDX + CycloneDX)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Install syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: SBOM (SPDX)
+        run: syft dir:. -o spdx-json=sbom.spdx.json
+
+      - name: SBOM (CycloneDX)
+        run: syft dir:. -o cyclonedx-json=sbom.cdx.json
+
+      - name: Upload SBOM artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.cdx.json
+          retention-days: 90
+
+  sign:
+    name: Sign artefacts with cosign (keyless Fulcio + OIDC)
+    needs: [build, sbom]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: sbom
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+        with:
+          cosign-release: v2.4.1
+
+      - name: Sign every dist artefact (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          mkdir -p signatures
+          for f in dist/* sbom/*; do
+            name=$(basename "$f")
+            cosign sign-blob --yes \
+              --bundle "signatures/${name}.cosign.bundle" \
+              --output-certificate "signatures/${name}.pem" \
+              --output-signature   "signatures/${name}.sig" \
+              "$f"
+          done
+
+      - name: Upload signatures
+        uses: actions/upload-artifact@v4
+        with:
+          name: signatures
+          path: signatures/
+          retention-days: 90
+
+  provenance:
+    name: Generate SLSA-3 provenance
+    needs: build
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.build.outputs.digests }}
+      upload-assets: true
+      provenance-name: sap-pentest-${{ github.ref_name }}.intoto.jsonl
+
+  release:
+    name: Publish GitHub Release
+    needs: [build, sbom, sign, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: sbom
+      - uses: actions/download-artifact@v4
+        with:
+          name: signatures
+          path: signatures
+      - uses: actions/download-artifact@v4
+        with:
+          name: sap-pentest-${{ github.ref_name }}.intoto.jsonl
+          path: provenance
+
+      - name: Verify cosign signatures locally (paranoid double-check)
+        uses: sigstore/cosign-installer@v3.7.0
+        with:
+          cosign-release: v2.4.1
+      - run: |
+          set -euo pipefail
+          for f in dist/* sbom/*; do
+            name=$(basename "$f")
+            cosign verify-blob \
+              --certificate "signatures/${name}.pem" \
+              --signature   "signatures/${name}.sig" \
+              --certificate-identity-regexp \
+                "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/v.*" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "$f"
+          done
+
+      - name: Compose release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          {
+            echo "## SAP-Pentest ${GITHUB_REF_NAME}"
+            echo
+            echo "**Artefact integrity & provenance**"
+            echo
+            echo '- Cosign keyless signatures (Sigstore Fulcio) attached as `*.sig` / `*.pem` / `*.cosign.bundle`.'
+            echo '- SLSA-3 provenance attached as `*.intoto.jsonl`.'
+            echo '- SBOM: SPDX (`sbom.spdx.json`) and CycloneDX (`sbom.cdx.json`).'
+            echo
+            echo 'Verify a wheel with:'
+            echo
+            echo '```bash'
+            echo 'cosign verify-blob \'
+            echo '  --certificate <wheel>.pem \'
+            echo '  --signature   <wheel>.sig \'
+            echo '  --certificate-identity-regexp "https://github.com/SigmanexSec/.+/.github/workflows/release.yml@refs/tags/v.*" \'
+            echo '  --certificate-oidc-issuer https://token.actions.githubusercontent.com \'
+            echo '  <wheel>'
+            echo '```'
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: SAP-Pentest ${{ github.ref_name }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          files: |
+            dist/*
+            sbom/*
+            signatures/*
+            provenance/*

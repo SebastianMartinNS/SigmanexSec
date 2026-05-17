@@ -27,13 +27,12 @@ testable and lets us compute KPIs over a simulated audit stream too.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
 
 from core.adaptive.decisions import DecisionKind
 from core.models import Finding
-
 
 # All decision-kind values, useful for histogram pre-seeding.
 _DECISION_VALUES: tuple[str, ...] = tuple(k.value for k in DecisionKind)
@@ -79,12 +78,12 @@ def _is_tool_call(action: str) -> bool:
 
 
 def iter_audit_rows(
-    path: Path, *, engagement_id: Optional[str] = None
+    path: Path, *, engagement_id: str | None = None
 ) -> Iterable[dict]:
     """Yield decoded JSONL rows from ``path``. Silently skips bad lines."""
     if not path.exists():
         return
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:

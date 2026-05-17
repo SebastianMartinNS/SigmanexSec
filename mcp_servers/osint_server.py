@@ -34,10 +34,10 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
@@ -48,8 +48,7 @@ from core.models import Engagement, Phase
 from core.scope_validator import IdentityKind, ScopeValidator, ScopeViolation
 from core.session_store import SessionStore
 from core.tool_output_store import get_tool_output_store
-from mcp_servers._response import register_resource_handlers
-
+from mcp_servers._response import register_resource_handlers, register_run_context_tool
 
 # ── Singletons ───────────────────────────────────────────────────────────────
 
@@ -62,6 +61,7 @@ _exe  = ToolExecutor(audit_log=audit)
 
 mcp = FastMCP("pentest-osint")
 register_resource_handlers(mcp, get_tool_output_store, server_suffix="osint")
+register_run_context_tool(mcp, _exe, server_suffix="osint")
 
 # Per-engagement lock around shared `_exe._scope` mutation.
 _scope_locks: dict[str, asyncio.Lock] = {}
@@ -75,7 +75,7 @@ def _scope_lock(engagement_id: str) -> asyncio.Lock:
     return lk
 
 
-def _require_binary(binary: str, install_hint: str = "") -> Optional[dict]:
+def _require_binary(binary: str, install_hint: str = "") -> dict | None:
     """Return a structured ``setup_required`` error if *binary* is missing.
 
     Returns ``None`` when the binary resolves on PATH — callers proceed
@@ -101,7 +101,7 @@ def _require_binary(binary: str, install_hint: str = "") -> Optional[dict]:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-async def _load_authorized_engagement(engagement_id: str) -> tuple[Optional[Engagement], Optional[ScopeValidator], Optional[dict]]:
+async def _load_authorized_engagement(engagement_id: str) -> tuple[Engagement | None, ScopeValidator | None, dict | None]:
     """Load the engagement, build a ScopeValidator and verify OSINT auth.
 
     Returns ``(engagement, scope, error_dict)``. On any failure, the first
@@ -250,7 +250,7 @@ def _parse_h8mail(stdout: str) -> dict:
     return {"breaches": breaches}
 
 
-def _parse_json_safe(stdout: str) -> Optional[dict | list]:
+def _parse_json_safe(stdout: str) -> dict | list | None:
     """Try to parse stdout as JSON (whole or first JSON line)."""
     s = stdout.strip()
     if not s:

@@ -1,22 +1,17 @@
 """P5 — external audit sinks + governance docs."""
 from __future__ import annotations
 
-import json
-import os
 import socket
-import threading
 from pathlib import Path
 
 import pytest
 
 from core.audit_sink import (
-    BaseSink,
     FileSink,
     SyslogConfig,
     SyslogSink,
     build_sinks_from_env,
 )
-
 
 # ── FileSink ────────────────────────────────────────────────────────────────
 

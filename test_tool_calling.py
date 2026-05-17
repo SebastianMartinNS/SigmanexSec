@@ -15,13 +15,12 @@ Uso:
 """
 
 import json
+import os
 import sys
-import time
 import urllib.request
 
 import openai
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
 
@@ -151,7 +150,7 @@ def call(messages: list[dict], max_tokens: int = 512) -> openai.types.chat.ChatC
 
 def test_health():
     try:
-        r = urllib.request.urlopen(f"http://127.0.0.1:8080/health", timeout=3)
+        r = urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=3)
         d = json.loads(r.read())
         check("Server health", d.get("status") == "ok", str(d))
         return True

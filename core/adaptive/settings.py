@@ -12,9 +12,8 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -23,14 +22,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CONFIG = _REPO_ROOT / "config.yaml"
 
 
-class RolloutMode(str, Enum):
+class RolloutMode(StrEnum):
     OFF = "off"
     SHADOW = "shadow"
     ADVISORY = "advisory"
     ENFORCE = "enforce"
 
     @classmethod
-    def parse(cls, value: object) -> "RolloutMode":
+    def parse(cls, value: object) -> RolloutMode:
         if isinstance(value, RolloutMode):
             return value
         try:
@@ -87,7 +86,7 @@ def _coerce_thresholds(raw: object, default: float) -> dict[str, float]:
     return out
 
 
-def load_adaptive_settings(path: Optional[os.PathLike] = None) -> AdaptiveSettings:
+def load_adaptive_settings(path: os.PathLike | None = None) -> AdaptiveSettings:
     cfg_path = Path(path or os.environ.get("SAP_CONFIG_PATH") or _DEFAULT_CONFIG)
     if not cfg_path.exists():
         return AdaptiveSettings()

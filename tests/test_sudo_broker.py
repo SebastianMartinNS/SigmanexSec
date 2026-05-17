@@ -9,22 +9,22 @@ from __future__ import annotations
 
 import asyncio
 import os
-import tempfile
 
 import pytest
 
 from core.sudo_broker import (
-    BrokerUnavailable, BrokerVaultProxy, SudoBrokerServer,
+    BrokerUnavailable,
+    BrokerVaultProxy,
+    SudoBrokerServer,
 )
 from core.sudo_vault import SudoFailed, SudoLocked, SudoVault
-
 
 pytestmark = pytest.mark.asyncio
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
-async def _spawn_broker(tmp_path, *, secret="hunter2", ttl=2, inactivity=2):
+async def _spawn_broker(tmp_path, *, secret="hunter2", ttl=2, inactivity=2):  # noqa: S107 — test fixture stub password
     sock = os.path.join(tmp_path, "sap_sudo_test.sock")
     vault = SudoVault(
         default_ttl_seconds=ttl,

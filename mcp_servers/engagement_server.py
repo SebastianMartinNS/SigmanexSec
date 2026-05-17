@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
@@ -46,11 +47,11 @@ audit = AuditLog(_log_path)
 mcp = FastMCP("pentest-engagement")
 from core.tool_output_store import get_tool_output_store
 from mcp_servers._response import register_resource_handlers
+
 register_resource_handlers(mcp, get_tool_output_store, server_suffix="engagement")
 
 
 # ── Lifecycle initialiser ─────────────────────────────────────────────────────
-import asyncio
 
 @mcp.tool()
 async def init_store() -> str:

@@ -11,10 +11,17 @@ from core.sudo_broker import BrokerUnavailable
 from core.sudo_vault import SudoFailed
 
 from ..deps import get_audit, get_vault, require_auth
+from ..rbac import ROLE_OPERATOR, require_role
 from ..schemas import SudoStatus, SudoUnlockBody
 from ..security import rotate_csrf
 
-router = APIRouter(prefix="/api/sudo", tags=["sudo"])
+router = APIRouter(
+    prefix="/api/sudo",
+    tags=["sudo"],
+    # Every sudo control-plane operation (status/unlock/lock/heartbeat)
+    # implies the user can drive privileged tools. operator is the floor.
+    dependencies=[Depends(require_role(ROLE_OPERATOR))],
+)
 
 
 # P1.7: cross-process rate-limit + lockout, shared with all uvicorn workers.
@@ -48,7 +55,7 @@ async def status_endpoint(_user: str = Depends(require_auth)):
     try:
         s = await v.status()
     except BrokerUnavailable as e:
-        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}") from e
     return _status_payload(s)
 
 
@@ -72,9 +79,9 @@ async def unlock_endpoint(
             engagement_id="-", actor=user,
             action="sudo_unlock_failed", details={"error": str(e)},
         ))
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except BrokerUnavailable as e:
-        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}") from e
 
     limiter.record_success(rl_key)
 
@@ -98,7 +105,7 @@ async def lock_endpoint(
     try:
         await v.lock()
     except BrokerUnavailable as e:
-        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}") from e
     await get_audit().write(AuditEntry(
         engagement_id="-", actor=user, action="sudo_lock", details={},
     ))
@@ -119,5 +126,5 @@ async def heartbeat_endpoint(_user: str = Depends(require_auth)):
                 await v.record_success()
             s = await v.status()
     except BrokerUnavailable as e:
-        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"sudo broker unavailable: {e}") from e
     return _status_payload(s)

@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 from pathlib import Path
@@ -22,13 +21,18 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import print as rprint
 
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
+from datetime import UTC
+
+from core.logging import configure_logging, get_logger
+from core.models import Engagement, EngagementCreate
 from core.session_store import SessionStore
-from core.models import EngagementCreate, Engagement, Phase, Severity
+
+configure_logging(service="cli")
+_log = get_logger("cli")
 
 console = Console()
 store = SessionStore(os.environ.get("SESSION_DB_PATH", "./sessions/assessments.db"))
@@ -135,7 +139,7 @@ def engage():
         await store.create_engagement(eng)
 
     asyncio.run(_create())
-    console.print(f"\n[bold green]✅ Engagement created![/bold green]")
+    console.print("\n[bold green]✅ Engagement created![/bold green]")
     console.print(f"   ID: [yellow]{eng.id}[/yellow]")
     console.print(f"   Scope CIDRs: {eng.scope_cidrs}")
     if eng.scope_emails or eng.scope_usernames or eng.scope_persons or eng.scope_social_handles:
@@ -397,12 +401,13 @@ def _ensure_self_signed_cert(host: str) -> tuple[str, str]:
     if cert_path.exists() and key_path.exists():
         return str(cert_path), str(key_path)
     try:
-        from datetime import datetime, timedelta, timezone
+        import ipaddress as _ip
+        from datetime import datetime, timedelta
+
         from cryptography import x509
-        from cryptography.x509.oid import NameOID
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
-        import ipaddress as _ip
+        from cryptography.x509.oid import NameOID
     except ImportError:
         console.print("[yellow]cryptography not available; cannot auto-generate TLS cert.[/yellow]")
         return "", ""
@@ -423,8 +428,8 @@ def _ensure_self_signed_cert(host: str) -> tuple[str, str]:
         .subject_name(subject).issuer_name(issuer)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.now(timezone.utc) - timedelta(minutes=1))
-        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
+        .not_valid_before(datetime.now(UTC) - timedelta(minutes=1))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=365))
         .add_extension(x509.SubjectAlternativeName(san), critical=False)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .sign(key, hashes.SHA256())
@@ -460,6 +465,7 @@ def outputs():
 def outputs_ls(run_id: str, engagement: str, tool: str, limit: int):
     """List persisted tool outputs."""
     import asyncio as _aio
+
     from core.tool_output_store import get_tool_output_store
     refs = _aio.run(get_tool_output_store().list(
         run_id=run_id or None,
@@ -472,8 +478,12 @@ def outputs_ls(run_id: str, engagement: str, tool: str, limit: int):
         return
     from rich.table import Table
     t = Table(title=f"{len(refs)} tool output(s)")
-    t.add_column("call_id"); t.add_column("tool"); t.add_column("rc")
-    t.add_column("stdout"); t.add_column("stderr"); t.add_column("created_at")
+    t.add_column("call_id")
+    t.add_column("tool")
+    t.add_column("rc")
+    t.add_column("stdout")
+    t.add_column("stderr")
+    t.add_column("created_at")
     for r in refs:
         t.add_row(
             r.call_id, r.tool, str(r.returncode),
@@ -487,6 +497,7 @@ def outputs_ls(run_id: str, engagement: str, tool: str, limit: int):
 def outputs_show(call_id: str):
     """Show metadata for a call_id."""
     import asyncio as _aio
+
     from core.tool_output_store import get_tool_output_store
     ref = _aio.run(get_tool_output_store().get(call_id))
     if ref is None:
@@ -504,6 +515,7 @@ def outputs_show(call_id: str):
 def outputs_cat(call_id: str, kind: str, head, tail):
     """Print stdout/stderr for a call_id."""
     import asyncio as _aio
+
     from core.tool_output_store import get_tool_output_store
     try:
         data = _aio.run(get_tool_output_store().read(
@@ -523,6 +535,7 @@ def outputs_download(call_id: str, dest_dir: str):
     import asyncio as _aio
     import shutil
     from pathlib import Path as _P
+
     from core.tool_output_store import get_tool_output_store
     ref = _aio.run(get_tool_output_store().get(call_id))
     if ref is None:
@@ -554,6 +567,7 @@ def outputs_download(call_id: str, dest_dir: str):
 def outputs_gc(retention_days: int, dry_run: bool, keep_eids: tuple[str, ...]):
     """Run the ToolOutputStore garbage collector."""
     import asyncio as _aio
+
     from core.tool_output_store import get_tool_output_store
     stats = _aio.run(get_tool_output_store().gc(
         retention_days=retention_days,
@@ -581,6 +595,7 @@ def gdpr():
 def gdpr_purge(engagement_id: str, reason: str, actor: str, yes: bool):
     """Permanently erase every record tied to ENGAGEMENT_ID (Art. 17)."""
     import asyncio as _aio
+
     from core.gdpr import purge_engagement
     if not yes:
         click.confirm(
@@ -612,6 +627,7 @@ def gdpr_purge(engagement_id: str, reason: str, actor: str, yes: bool):
 def gdpr_retention(audit_days: int, tool_output_days: int):
     """Apply the configured retention policy across audit log + tool outputs."""
     import asyncio as _aio
+
     from core.gdpr import apply_retention
     res = _aio.run(apply_retention(
         audit_max_age_days=audit_days,

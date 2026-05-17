@@ -8,9 +8,7 @@ filesystem blobs under ``sessions/runs/{run_id}/tool_outputs/{call_id}/``.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -18,8 +16,14 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from core.tool_output_store import get_tool_output_store
 
 from ..deps import require_auth
+from ..rbac import ROLE_VIEWER, require_role
 
-router = APIRouter(prefix="/api", tags=["outputs"])
+router = APIRouter(
+    prefix="/api",
+    tags=["outputs"],
+    # ToolOutputStore is read-only data; any authenticated viewer can browse it.
+    dependencies=[Depends(require_role(ROLE_VIEWER))],
+)
 
 
 # ── Listing ────────────────────────────────────────────────────────────────
@@ -27,7 +31,7 @@ router = APIRouter(prefix="/api", tags=["outputs"])
 @router.get("/runs/{run_id}/outputs")
 async def list_run_outputs(
     run_id: str,
-    tool: Optional[str] = Query(None),
+    tool: str | None = Query(None),
     limit: int = Query(200, ge=1, le=2000),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -39,7 +43,7 @@ async def list_run_outputs(
 @router.get("/engagements/{engagement_id}/outputs")
 async def list_engagement_outputs(
     engagement_id: str,
-    tool: Optional[str] = Query(None),
+    tool: str | None = Query(None),
     limit: int = Query(200, ge=1, le=2000),
     _user: str = Depends(require_auth),
 ) -> dict:
@@ -104,8 +108,8 @@ async def download_artifact(
     # Path-traversal guard: target must remain under base
     try:
         target.relative_to(base)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="invalid filename")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid filename") from exc
     if not target.is_file():
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(str(target), filename=target.name)
@@ -118,10 +122,10 @@ async def download_artifact(
 async def get_output_body(
     call_id: str,
     kind: str,
-    head: Optional[int] = Query(None, ge=0),
-    tail: Optional[int] = Query(None, ge=0),
-    offset: Optional[int] = Query(None, ge=0),
-    length: Optional[int] = Query(None, ge=0),
+    head: int | None = Query(None, ge=0),
+    tail: int | None = Query(None, ge=0),
+    offset: int | None = Query(None, ge=0),
+    length: int | None = Query(None, ge=0),
     _user: str = Depends(require_auth),
 ) -> str:
     if kind not in ("stdout", "stderr"):
@@ -131,6 +135,6 @@ async def get_output_body(
         data = await store.read(
             call_id, kind, head=head, tail=tail, offset=offset, length=length,
         )
-    except (FileNotFoundError, KeyError):
-        raise HTTPException(status_code=404, detail="call_id or stream not found")
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail="call_id or stream not found") from exc
     return data.decode("utf-8", errors="replace")

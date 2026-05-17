@@ -32,7 +32,11 @@ SERVER_BIN="${SCRIPT_DIR}/llama.cpp/build/bin/llama-server"
 CLI_BIN="${SCRIPT_DIR}/llama.cpp/build/bin/llama-cli"
 
 # ── Parametri configurabili via env ───────────────────────────────────────────
-CTX="${CTX:-200704}"    # 196k default (196*1024) — KV cache q4_0 ~7.5 GB, q8_0 ~15 GB. Override CTX=32768 per VRAM ridotta.
+# Default validati su RTX 4060 Laptop 8 GB con Qwen3.5-35B-A3B (n_layer=40):
+#   NGL=40 NCMOE=34 CTX=200704 NO_KV_OFFLOAD=0
+#   → 33-37 t/s con CTX 196k, KV q4_0 su GPU (2 GB), graph_splits=124.
+# Sovrascrivibili da env (es. CPU-only: NGL=0 NCMOE=0 bash start_llm.sh).
+CTX="${CTX:-200704}"            # 196k default (196*1024) — max ctx Qwen3.5-35B
 PORT="${PORT:-8080}"
 
 # ── Pre-flight memory check ────────────────────────────────────────────────────
@@ -84,27 +88,36 @@ if [[ ! -f "$BIN" ]]; then
     exit 1
 fi
 
-# ── Auto-detect NGL ────────────────────────────────────────────────────────────
-# Qwen3.5-35B-A3B MoE: 64 layer in Q4_K_M.
-# Realistic per-layer cost in VRAM (weights + activations + per-layer KV slice):
-#   ~280 MB/layer for Q4_K_M MoE 35B (worst case during prefill).
-# Headroom must cover: CUDA context (~400 MB) + compute buffer (~600 MB) +
-#   KV cache (q8_0 ctx=32k ≈ 1.5 GB), total ≈ 2.5 GB. Override with
-#   VRAM_HEADROOM_MB or pin NGL=<n> manually.
-VRAM_HEADROOM_MB="${VRAM_HEADROOM_MB:-3000}"
-LAYER_COST_MB="${LAYER_COST_MB:-280}"
+# ── Auto-detect / default NGL ─────────────────────────────────────────────────
+# Qwen3.5-35B-A3B MoE: 40 layer (n_layer=40 da meta GGUF qwen35moe).
+# Strategia: con CTX grande l'auto-detect "calcolo MB/layer" è inadeguato
+# perché ignora il KV cache (1-2 GB su GPU) e il MoE split (--n-cpu-moe).
+# Preferiamo i DEFAULT VALIDATI sulla RTX 4060 Laptop 8 GB:
+#   NGL=40 + NCMOE=34 + KV su GPU → ~7.4 GB VRAM, 33-37 t/s a CTX 196k.
+# L'auto-detect da nvidia-smi viene usato SOLO se la GPU rilevata ha
+# meno VRAM (per es. su altra macchina) — formula prudente con NCMOE applicato.
+N_LAYER=40
+VRAM_HEADROOM_MB="${VRAM_HEADROOM_MB:-1500}"   # KV (~2 GB già contato sotto) + compute buffer
+LAYER_COST_MB="${LAYER_COST_MB:-50}"           # con NCMOE attivo i layer "GPU" sono solo attention+shared
 
 if [[ -z "${NGL:-}" ]]; then
     if command -v nvidia-smi &>/dev/null; then
         FREE_MB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null \
                    | head -1 | tr -d '[:space:]')
         if [[ "$FREE_MB" =~ ^[0-9]+$ ]]; then
-            USABLE=$(( FREE_MB - VRAM_HEADROOM_MB ))
-            [[ $USABLE -lt 0 ]] && USABLE=0
-            NGL=$(( USABLE / LAYER_COST_MB ))
-            [[ $NGL -gt 64 ]] && NGL=64
-            echo "[GPU] VRAM libera: ${FREE_MB} MB — headroom ${VRAM_HEADROOM_MB} MB — cost ${LAYER_COST_MB} MB/layer"
-            echo "[GPU] offload ${NGL}/64 layer su GPU (override con NGL=<n>, VRAM_HEADROOM_MB=<mb>)"
+            # Su 8 GB Laptop 4060 (FREE_MB ≈ 7800): scegli default validato.
+            if [[ $FREE_MB -ge 7000 ]]; then
+                NGL=$N_LAYER
+                echo "[GPU] VRAM libera ${FREE_MB} MB ≥ 7 GB → default validato NGL=${NGL}/${N_LAYER}"
+            else
+                # GPU più piccola: stima conservativa assumendo NCMOE applicato.
+                # Budget: FREE - headroom - KV(~2GB) - compute(~800MB) = layer_attn
+                BUDGET=$(( FREE_MB - VRAM_HEADROOM_MB - 2000 - 800 ))
+                [[ $BUDGET -lt 0 ]] && BUDGET=0
+                NGL=$(( BUDGET / LAYER_COST_MB ))
+                [[ $NGL -gt $N_LAYER ]] && NGL=$N_LAYER
+                echo "[GPU] VRAM libera ${FREE_MB} MB — fallback conservativo NGL=${NGL}/${N_LAYER}"
+            fi
         else
             NGL=0
             echo "[GPU] Impossibile leggere VRAM — CPU-only (NGL=0)"
@@ -118,20 +131,24 @@ else
     echo "[GPU] NGL forzato: ${NGL}"
 fi
 
+# Default NCMOE coerente con NGL=40 sul target RTX 4060 8 GB.
+# Quando NGL=40 ma NCMOE non è settato, applica il default validato (34).
+# Per disattivare il MoE split: NCMOE=0.
+if [[ -z "${NCMOE:-}" && "$NGL" == "$N_LAYER" ]]; then
+    NCMOE=34
+    echo "[MoE] NCMOE non settato + NGL=${NGL} → default validato NCMOE=${NCMOE}"
+fi
+
+# Default NO_KV_OFFLOAD coerente con default validato (KV su GPU).
+# Sovrascrive l'auto-attivazione \`NGL>0 && CTX>32k\` quando applichiamo i default.
+if [[ -z "${NO_KV_OFFLOAD:-}" && "$NGL" == "$N_LAYER" && "${NCMOE:-0}" -ge 30 ]]; then
+    NO_KV_OFFLOAD=0
+    echo "[KV]  default validato → KV su GPU (NO_KV_OFFLOAD=0)"
+fi
+
 # ── Thread count ───────────────────────────────────────────────────────────────
 THREADS=$(( $(nproc) / 2 ))
 [[ $THREADS -lt 4 ]] && THREADS=4
-
-# ── KV cache type ──────────────────────────────────────────────────────────────
-# q4_0: ~0.5 byte/elemento — bilancio ottimale qualità/memoria senza swap
-# q8_0: 1 byte/elemento    — solo con GPU offload o swap abilitato
-if [[ $NGL -ge 20 ]]; then
-    KV_TYPE="q8_0"
-    echo "[KV]  GPU offload attivo → KV q8_0 (qualità massima)"
-else
-    KV_TYPE="q4_0"
-    echo "[KV]  CPU-only → KV q4_0 (risparmio ~50% vs q8_0)"
-fi
 
 # ── KV offload location ───────────────────────────────────────────────────────
 # Quando i pesi sono su GPU (NGL>0) ma il context è grande (>32k), il KV cache
@@ -151,9 +168,31 @@ if [[ "$NO_KV_OFFLOAD" == "1" ]]; then
     echo "[KV]  --no-kv-offload attivo → pesi su GPU, KV in RAM (CTX=$CTX > 32k)"
 fi
 
+# ── KV cache type ──────────────────────────────────────────────────────────────
+# Decisione DOPO NO_KV_OFFLOAD: se il KV vive in RAM con CTX grande, q8_0
+# diventa proibitivo (~15 GB a 196k) → forziamo q4_0. Altrimenti seguiamo
+# la regola classica: q8_0 se i pesi/KV sono su GPU, q4_0 se siamo CPU-only.
+# Override esplicito con KV_TYPE=q8_0|q4_0.
+if [[ -z "${KV_TYPE:-}" ]]; then
+    if [[ "$NO_KV_OFFLOAD" == "1" ]]; then
+        KV_TYPE="q4_0"
+        echo "[KV]  KV in RAM + CTX=$CTX → KV q4_0 (q8_0 sarebbe ~2x in RAM)"
+    elif [[ $NGL -ge 20 ]]; then
+        KV_TYPE="q8_0"
+        echo "[KV]  GPU offload + KV su GPU → KV q8_0 (qualità massima)"
+    else
+        KV_TYPE="q4_0"
+        echo "[KV]  CPU-only → KV q4_0 (risparmio ~50% vs q8_0)"
+    fi
+else
+    echo "[KV]  KV_TYPE forzato: $KV_TYPE"
+fi
+
 # ── Stima memoria ──────────────────────────────────────────────────────────────
-RAM_MODEL_GB=$(( (64 - NGL) * 230 / 1024 + 1 ))
-KV_MB=$(( CTX * 64 * 8 * 128 * 2 / 1024 / 1024 ))
+# n_layer=40, ~495 MB/layer di esperti (19.78 GB / 40). Attention/shared ~30 MB/layer.
+# KV cache Qwen3.5-35B: n_layer=40, n_kv_head=2, head_dim=256, q8_0 = 1 byte/elem.
+RAM_MODEL_GB=$(( (40 - NGL) * 495 / 1024 + 1 ))
+KV_MB=$(( CTX * 40 * 2 * 256 * 2 / 1024 / 1024 ))
 [[ "$KV_TYPE" == "q4_0" ]] && KV_MB=$(( KV_MB / 2 ))
 echo "[MEM] Stima utilizzo: ~${RAM_MODEL_GB} GB pesi CPU + ~${KV_MB} MB KV cache"
 
@@ -164,7 +203,7 @@ echo "════════════════════════�
 [[ "$MODE" == "cli"    ]] && echo "  Qwen3.5-35B-A3B Heretic — CLI Chat"
 echo "════════════════════════════════════════════"
 echo "  Modello    : $(basename "$MODEL")"
-echo "  GPU layers : ${NGL}/64"
+echo "  GPU layers : ${NGL}/40"
 echo "  Contesto   : ${CTX} token"
 echo "  Thread CPU : $THREADS"
 echo "  Flash Attn : on"
@@ -195,13 +234,31 @@ if [[ -n "${SAP_LLM_API_KEY:-}" ]]; then
     API_KEY_ARGS=(--api-key "$SAP_LLM_API_KEY")
 fi
 
+# ── MoE expert offload ───────────────────────────────────────────────────────
+# Qwen3.5-35B-A3B is an MoE model (256 experts, 8 active per token). Most of
+# the 19.7 GB weight footprint is in the expert FFN tensors which are accessed
+# sparsely. On GPUs that cannot fit the whole model, the optimal split is:
+#   - all 40 transformer layers fully on GPU (-ngl 40)
+#   - MoE expert tensors of the first NCMOE layers kept on CPU (--n-cpu-moe N)
+# This keeps attention + shared FFN (the hot path) in VRAM and avoids the
+# slow CPU-GPU per-token copy of dense FFNs.
+#
+# Heuristic: NCMOE = 40 means ALL expert weights stay on CPU (~19 GB host RAM,
+# ~1 GB VRAM for attention/embeddings). Lower NCMOE moves more experts to GPU.
+# Override with NCMOE=<n>; set NCMOE=0 to disable and revert to plain -ngl mode.
+NCMOE_ARGS=()
+if [[ -n "${NCMOE:-}" && "$NCMOE" != "0" ]]; then
+    NCMOE_ARGS=(--n-cpu-moe "$NCMOE")
+    echo "[MoE] --n-cpu-moe ${NCMOE} (experts of first ${NCMOE} layers on CPU)"
+fi
+
 # Run llama-server with retry-on-OOM: if CUDA OOMs, retry once with NGL=0.
 run_server() {
     local ngl="$1"
     "$BIN" \
         -m "$MODEL" -ngl "$ngl" -c "$CTX" -t "$THREADS" \
         -fa on -ctk "$KV_TYPE" -ctv "$KV_TYPE" \
-        "${NKVO_ARGS[@]}" \
+        "${NKVO_ARGS[@]}" "${NCMOE_ARGS[@]}" \
         --host 127.0.0.1 --port "$PORT" -np 1 \
         "${API_KEY_ARGS[@]}" \
         --jinja --chat-template-file "$QWEN3_TMPL" \

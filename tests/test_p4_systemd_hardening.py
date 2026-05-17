@@ -69,7 +69,7 @@ def test_sudo_broker_unix_only():
     assert "RestrictAddressFamilies=AF_UNIX" in body
     assert "IPAddressDeny=any" in body
     # Must not allow any network family beyond AF_UNIX.
-    raf_lines = [l for l in body.splitlines() if l.startswith("RestrictAddressFamilies=")]
+    raf_lines = [line for line in body.splitlines() if line.startswith("RestrictAddressFamilies=")]
     assert raf_lines == ["RestrictAddressFamilies=AF_UNIX"], raf_lines
 
 

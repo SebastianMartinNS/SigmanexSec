@@ -17,20 +17,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from core.models import Engagement, EngagementCreate
-from core.session_store import SessionStore
 
 
 def _patch_parrot_exe(monkeypatch, stdout: str = ""):
     """Stub `ToolExecutor.run` used by parrot_server, honoring scope."""
-    from mcp_servers import parrot_server as srv
     from core.executor import ExecutionResult
+    from mcp_servers import parrot_server as srv
 
     async def fake_run(self, *args, **kwargs):
         identity = kwargs.get("identity_target")

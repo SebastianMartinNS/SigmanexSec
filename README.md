@@ -1,7 +1,7 @@
 # SAP-Pentest — Sigmanex Security Assessment Platform
 
 > **A [Sigmanex](https://www.sigmanex.net) open-source release.**
-> Repository: <https://github.com/SebastianMartinNS/SigmanexSec>.
+> Repository: <https://github.com/SigmanexSec/SigmanexSec>.
 > SAP-Pentest is published as a public demonstration of the
 > engineering, security and compliance practices we apply across the
 > Sigmanex stack. It is the same control fabric — scope enforcement,
@@ -69,7 +69,7 @@ llama.cpp build, credentials, first login, troubleshooting) see
 
 ```bash
 # 1. Clone with the llama.cpp submodule
-git clone --recursive https://github.com/SebastianMartinNS/SigmanexSec.git sap-pentest
+git clone --recursive https://github.com/SigmanexSec/SigmanexSec.git sap-pentest
 cd sap-pentest
 
 # 2. System bootstrap (NVIDIA GPU + kernel 6.17 + Parrot tools)
@@ -394,7 +394,8 @@ Do not replace `llama.cpp/` with a fresh upstream checkout.
 ## Documentation
 
 **Repository root:**
-- [PENTEST_AGENT_MCP_SPEC.md](PENTEST_AGENT_MCP_SPEC.md) — full engineering spec.
+- [PENTEST_AGENT_MCP_SPEC.md](PENTEST_AGENT_MCP_SPEC.md) — full engineering spec (Italian; canonical until translation completes).
+- [PENTEST_AGENT_MCP_SPEC.en.md](PENTEST_AGENT_MCP_SPEC.en.md) — English executive summary + index into the Italian source.
 - [LLAMACPP_FORK.md](LLAMACPP_FORK.md) — inventory of the nine `llama.cpp` patches and how to rebuild the fork.
 - [AUTHORIZATION.md](AUTHORIZATION.md) — authorization requirements & RoE checklist (read before any engagement).
 - [SECURITY.md](SECURITY.md) — vulnerability reporting (root entry point).
@@ -404,9 +405,13 @@ Do not replace `llama.cpp/` with a fresh upstream checkout.
 - [LICENSE](LICENSE) — Apache-2.0 + ethical-use addendum.
 
 **`docs/`:**
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — C4 + data-flow diagrams, persistence layout, configuration surface.
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — production deployment (host bootstrap, systemd, TLS, external audit sink, upgrade).
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — operator runbook: common failures and recovery.
 - [docs/SECURITY.md](docs/SECURITY.md) — full security policy & threat model.
 - [docs/COMPLIANCE.md](docs/COMPLIANCE.md) — GDPR / ISO 27001 / SOC 2 control mapping.
 - [docs/IR_RUNBOOK.md](docs/IR_RUNBOOK.md) — incident response runbook.
+- [docs/INSTALL.md](docs/INSTALL.md) — single-machine developer bootstrap.
 - [docs/osint.md](docs/osint.md) — identity OSINT tools reference (PII handling rules included).
 
 **Component-level:**

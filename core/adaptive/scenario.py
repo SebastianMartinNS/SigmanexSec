@@ -17,8 +17,9 @@ mode (off / shadow / advisory / enforce).
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any
 
 # Service/port tuples that strongly indicate Active Directory infrastructure.
 _AD_PORTS = {88, 389, 445, 636, 3268, 3269, 5985, 5986}
@@ -83,9 +84,9 @@ class ScenarioClassifier:
 
     @staticmethod
     def classify(
-        scope: Optional[dict] = None,
-        hosts: Optional[Sequence[dict]] = None,
-        findings: Optional[Sequence[dict]] = None,
+        scope: dict | None = None,
+        hosts: Sequence[dict] | None = None,
+        findings: Sequence[dict] | None = None,
     ) -> Scenario:
         scope = scope or {}
         hosts = list(hosts or [])

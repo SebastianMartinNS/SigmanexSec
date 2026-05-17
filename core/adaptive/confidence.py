@@ -34,11 +34,10 @@ that contributed so the operator can audit why a finding looks weak.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
 
 from core.models import ExecutionResult, Finding
-
 
 # --------------------------------------------------------------------------- #
 # Public types                                                                #
@@ -51,7 +50,7 @@ class ConfidenceScore:
     rationale: str
     contributors: tuple[tuple[str, float], ...] = field(default_factory=tuple)
 
-    def clamped(self) -> "ConfidenceScore":
+    def clamped(self) -> ConfidenceScore:
         v = max(0.0, min(1.0, self.value))
         if v == self.value:
             return self
@@ -68,7 +67,7 @@ _STDERR_NOISE_RE = re.compile(r"\b(warning|error|failed|fatal)\b", re.IGNORECASE
 
 
 def score_from_execution(
-    result: Optional[ExecutionResult],
+    result: ExecutionResult | None,
     *,
     expected_patterns: Sequence[str] = (),
     corroborating_tools: Sequence[str] = (),
@@ -166,7 +165,7 @@ def score_from_execution(
 def score_finding(
     finding: Finding,
     *,
-    last_result: Optional[ExecutionResult] = None,
+    last_result: ExecutionResult | None = None,
     expected_patterns: Sequence[str] = (),
     corroborating_tools: Sequence[str] = (),
     operator_approved: bool = False,

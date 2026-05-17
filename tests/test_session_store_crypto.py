@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from core.session_store import _decrypt, _derive_key, _encrypt

@@ -83,7 +83,7 @@ def _mlockall(status: HardeningStatus) -> None:
         return
     if not hasattr(_LIBC, "mlockall"):
         return
-    MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT = 1, 2, 4
+    MCL_CURRENT, MCL_FUTURE, _MCL_ONFAULT = 1, 2, 4
     try:
         rc = _LIBC.mlockall(MCL_CURRENT | MCL_FUTURE)
         if rc == 0:

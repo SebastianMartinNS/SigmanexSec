@@ -3,9 +3,7 @@ P2.1 — Audit log BLAKE2b hash chain.
 """
 from __future__ import annotations
 
-import asyncio
 import json
-from pathlib import Path
 
 import pytest
 

@@ -49,15 +49,16 @@ import os
 import signal
 import socket
 import struct
-import sys
-import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Optional
+from typing import Any
 
 from core.sudo_vault import (
-    SudoFailed, SudoLocked, SudoVault, _zeroize,
+    SudoFailed,
+    SudoLocked,
+    SudoVault,
+    _zeroize,
 )
-
 
 log = logging.getLogger("sap.sudo_broker")
 
@@ -121,7 +122,7 @@ async def validate_with_sudo(
                     if ln.strip() and not ln.strip().startswith("[sudo]")
                 ]
                 err_text = (lines[-1] if lines else "")[:200]
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return False, f"sudo validation timed out after {timeout:.0f}s (PAM backoff?)"
@@ -147,13 +148,13 @@ class SudoBrokerServer:
     def __init__(
         self,
         socket_path: str,
-        vault: Optional[SudoVault] = None,
-        validator: Optional[ValidatorFn] = None,
+        vault: SudoVault | None = None,
+        validator: ValidatorFn | None = None,
     ):
         self.socket_path = socket_path
         self.vault = vault if vault is not None else SudoVault()
         self.validator: ValidatorFn = validator or validate_with_sudo
-        self._server: Optional[asyncio.AbstractServer] = None
+        self._server: asyncio.AbstractServer | None = None
         self._uid = os.getuid()
 
     # ── lifecycle ──────────────────────────────────────────────────────
@@ -220,7 +221,7 @@ class SudoBrokerServer:
             await writer.drain()
             # Best-effort scrub: rewrite the request bytearray we hold.
             _zeroize(bytearray(line))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         except Exception as e:  # pragma: no cover
             log.exception("broker handler error: %s", e)
@@ -334,7 +335,7 @@ class BrokerVaultProxy:
         try:
             reader, writer = await asyncio.open_unix_connection(self.socket_path)
         except (FileNotFoundError, ConnectionRefusedError) as e:
-            raise BrokerUnavailable(f"broker not reachable at {self.socket_path}: {e}")
+            raise BrokerUnavailable(f"broker not reachable at {self.socket_path}: {e}") from e
         try:
             writer.write((json.dumps({"op": op, **payload}) + "\n").encode("utf-8"))
             await writer.drain()
@@ -361,7 +362,7 @@ class BrokerVaultProxy:
             return False
         return not bool(r.get("locked", True))
 
-    async def unlock(self, password: str, ttl_seconds: Optional[int] = None) -> None:
+    async def unlock(self, password: str, ttl_seconds: int | None = None) -> None:
         ttl = int(ttl_seconds) if ttl_seconds else 600
         r = await self._call("unlock", password=password, ttl=ttl)
         if not r.get("ok"):

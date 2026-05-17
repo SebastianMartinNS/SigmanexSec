@@ -57,6 +57,44 @@ rm -f logs/*.pid 2>/dev/null
 # Remove the sudo broker socket if it lingers.
 rm -f "${XDG_RUNTIME_DIR:-/tmp}/sap_sudo_$(id -u).sock" 2>/dev/null
 
+# ── Pulizia VRAM (NVIDIA) ────────────────────────────────────────────────────
+# Su NVIDIA la VRAM viene rilasciata solo quando il processo proprietario esce.
+# Dopo i kill sopra può restare un processo CUDA orfano (es. crash mid-init):
+# qui chiediamo a nvidia-smi la lista dei processi compute residui e li
+# terminiamo. Skip con SKIP_VRAM_CLEAN=1.
+if [[ "${SKIP_VRAM_CLEAN:-0}" != "1" ]] && command -v nvidia-smi &>/dev/null; then
+    VRAM_BEFORE=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null \
+                   | head -1 | tr -d '[:space:]')
+    # Lista PID di processi compute (training/inference) attaccati alla GPU.
+    mapfile -t GPU_PIDS < <(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null \
+                             | tr -d '[:space:]' | grep -E '^[0-9]+$' || true)
+    if (( ${#GPU_PIDS[@]} > 0 )); then
+        for gp in "${GPU_PIDS[@]}"; do
+            # Solo processi nostri o uccidibili (no errore se non più presenti).
+            if kill -0 "$gp" 2>/dev/null; then
+                kill -TERM "$gp" 2>/dev/null || true
+                echo -e "${C_YEL}[gpu]${C_RST}  pid $gp ancora su GPU → TERM"
+            fi
+        done
+        sleep 2
+        for gp in "${GPU_PIDS[@]}"; do
+            if kill -0 "$gp" 2>/dev/null; then
+                kill -KILL "$gp" 2>/dev/null || true
+                echo -e "${C_YEL}[gpu]${C_RST}  pid $gp resistente → KILL"
+            fi
+        done
+        sleep 1
+    fi
+    VRAM_AFTER=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null \
+                  | head -1 | tr -d '[:space:]')
+    VRAM_FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null \
+                  | head -1 | tr -d '[:space:]')
+    if [[ "$VRAM_BEFORE" =~ ^[0-9]+$ && "$VRAM_AFTER" =~ ^[0-9]+$ ]]; then
+        FREED=$(( VRAM_BEFORE - VRAM_AFTER ))
+        echo -e "${C_GREEN}[gpu]${C_RST}  VRAM used: ${VRAM_BEFORE} → ${VRAM_AFTER} MiB (liberati ${FREED} MiB, free ${VRAM_FREE} MiB)"
+    fi
+fi
+
 # ── Pulizia RAM cache (pagecache + dentries + inodes) ────────────────────────
 # Libera la memoria che il kernel tiene come cache disco dopo lo scarico
 # del modello GGUF (~20 GB mmap). Skip con SKIP_DROP_CACHES=1.

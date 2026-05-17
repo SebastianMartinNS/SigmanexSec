@@ -8,8 +8,10 @@ test_mcp_tool_calling.py — End-to-end test dei 37 tool MCP via llama-server.
    (b) gli argomenti sono JSON validi secondo l'inputSchema MCP.
 """
 from __future__ import annotations
-import asyncio, json, sys
-from typing import Any
+
+import asyncio
+import json
+import sys
 
 import requests
 from jsonschema import Draft202012Validator
@@ -109,7 +111,7 @@ SCENARIOS = [
 async def collect_tools() -> tuple[list[dict], dict[str, dict]]:
     openai_tools: list[dict] = []
     schemas: dict[str, dict] = {}
-    for name, url in SERVERS.items():
+    for _name, url in SERVERS.items():
         async with streamablehttp_client(url) as (r, w, _):
             async with ClientSession(r, w) as s:
                 await s.initialize()

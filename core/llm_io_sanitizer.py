@@ -26,7 +26,6 @@ import re
 import unicodedata
 from typing import Final
 
-
 # Maximum bytes of tool output retained verbatim. Anything larger is truncated
 # with a marker. 200 KB is enough for nmap -A on a /24 yet keeps the LLM
 # context affordable. Override via SAP_LLM_MAX_TOOL_OUTPUT.

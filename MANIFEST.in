@@ -1,0 +1,62 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include CODE_OF_CONDUCT.md
+include CONTRIBUTING.md
+include SECURITY.md
+include AUTHORIZATION.md
+include LLAMACPP_FORK.md
+include PENTEST_AGENT_MCP_SPEC.md
+include pyproject.toml
+include requirements.txt
+include requirements.lock
+include requirements-dev.lock
+include models.sha256
+include .env.example
+include config.yaml
+include parrot_tools.yaml
+
+# Playbooks travel with the wheel so packaged installs can run out of the box.
+recursive-include playbooks *.yaml *.yml
+
+# Prompt assets are part of agent runtime behaviour.
+recursive-include agent/prompts *.md
+
+# Frontend bundles for the dashboard.
+recursive-include sap_dashboard/frontend/assets *
+recursive-include sap_dashboard/frontend/templates *
+recursive-include sap_dashboard/frontend/vendor *
+include sap_dashboard/frontend/index.html
+include sap_dashboard/frontend/tailwind.config.js
+include sap_dashboard/frontend/tailwind.src.css
+
+# Reference deployment material (systemd units, sandbox profiles).
+recursive-include deploy *.conf *.json *.service *.timer *.yaml *.yml *.md *.sh
+
+# Documentation set (operators and auditors will want this in the sdist).
+recursive-include docs *.md *.png *.svg *.mmd
+
+# Patches and bootstrap scripts kept in source distributions for reproducibility.
+recursive-include patches *.patch *.diff
+recursive-include scripts *.sh *.py
+
+# Exclusions: do not ship runtime state, build artefacts, or vendored llama.cpp
+# source in the wheel/sdist.
+prune llama.cpp
+prune build
+prune dist
+prune __pycache__
+prune .pytest_cache
+prune .vscode
+prune .github
+prune logs
+prune runs
+prune sessions
+prune reports
+prune results
+prune .venv
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.so
+global-exclude .DS_Store
+global-exclude *.bak

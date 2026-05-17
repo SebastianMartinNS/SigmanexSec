@@ -1,0 +1,250 @@
+name: SAP — CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  # ── Lint ─────────────────────────────────────────────────────────────────
+  # Cleaned to zero in workstream P2.0.1 (ratchet of Fase 1 technical debt).
+  # `continue-on-error` was removed; any new ruff violation now blocks PRs.
+  # `ruff format --check` is still advisory pending the bulk-format sweep.
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install ruff
+        run: pip install 'ruff>=0.6.0'
+      - name: ruff check
+        run: ruff check . --output-format=github
+      - name: ruff format --check (advisory)
+        run: ruff format --check . || true
+
+  # ── Type check ───────────────────────────────────────────────────────────
+  # Strict typing is the target for v2.2; until the module overrides in
+  # pyproject.toml are ratcheted away one PR at a time, this job runs in
+  # informational mode (continue-on-error) so a single new untyped function
+  # does not block unrelated work. Flip continue-on-error to false once
+  # `mypy --strict core/ mcp_servers/ sap_dashboard/backend/` is green.
+  typecheck:
+    name: Type check (mypy --strict)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install runtime + mypy
+        run: |
+          pip install --require-hashes -r requirements.lock
+          pip install 'mypy>=1.11.0' types-PyYAML types-aiofiles types-pexpect
+      - name: mypy
+        run: |
+          mypy core mcp_servers sap_dashboard agent \
+            --config-file pyproject.toml \
+            --no-error-summary \
+            --show-error-codes
+
+  # ── Security static analysis ─────────────────────────────────────────────
+  security-bandit:
+    name: Security (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install bandit
+        run: pip install 'bandit>=1.7.9'
+      - name: bandit (HIGH + MEDIUM severity)
+        run: |
+          bandit -ll -ii \
+            -r core sap_dashboard agent mcp_servers \
+            --exclude llama.cpp,build,sap_dashboard/frontend \
+            -f json -o bandit.json
+      - name: Upload bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit.json
+          retention-days: 30
+
+  security-semgrep:
+    name: Security (semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: semgrep scan
+        run: |
+          semgrep scan \
+            --config=p/python \
+            --config=p/secrets \
+            --config=p/owasp-top-ten \
+            --error \
+            --severity=ERROR \
+            --severity=WARNING \
+            --metrics=off \
+            --exclude=llama.cpp \
+            --exclude=build \
+            --exclude=sap_dashboard/frontend \
+            --json --output=semgrep.json \
+            . || true
+      - name: Upload semgrep report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep.json
+          retention-days: 30
+
+  security-trivy:
+    name: Security (trivy fs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan (vulnerabilities + secrets + misconfig)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          skip-dirs: llama.cpp,build,sap_dashboard/frontend
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Upload SARIF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sarif
+          path: trivy-results.sarif
+          retention-days: 30
+
+  security-pip-audit:
+    name: Security (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install pip-audit
+        run: pip install 'pip-audit>=2.7.0'
+      - name: Audit hash-locked dependencies
+        run: pip-audit --strict --requirement requirements.lock
+
+  # ── Test suite ───────────────────────────────────────────────────────────
+  # Full pytest with coverage. The coverage gate is set to 0 initially so a
+  # green build is achievable on day one; raise --cov-fail-under each
+  # release as workstream 1.4 (property tests) and follow-up tests close
+  # the gap. v2.2 release criterion: 75% global, 85% on core/.
+  pytest:
+    name: pytest (full suite + coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install runtime + test deps
+        run: |
+          pip install --require-hashes -r requirements.lock
+          pip install 'pytest>=8.0.0' 'pytest-asyncio>=0.23.0' \
+                      'pytest-cov>=5.0.0' 'hypothesis>=6.100.0'
+      - name: Run pytest
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest tests/ -v \
+            --cov=core --cov=mcp_servers --cov=agent --cov=sap_dashboard \
+            --cov-report=xml --cov-report=term \
+            --cov-fail-under=0 \
+            --junitxml=pytest-results.xml
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            pytest-results.xml
+          retention-days: 30
+
+  # ── Distribution build ───────────────────────────────────────────────────
+  build:
+    name: Build & install wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install build tooling
+        run: pip install 'build>=1.2.0'
+      - name: Build sdist + wheel
+        run: python -m build
+      - name: Smoke install in clean venv
+        run: |
+          python -m venv /tmp/install-test
+          /tmp/install-test/bin/pip install --upgrade pip
+          /tmp/install-test/bin/pip install dist/*.whl
+          /tmp/install-test/bin/sap-pentest --help
+      - name: Upload distribution artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 30
+
+  # ── llama.cpp patch applicability ────────────────────────────────────────
+  # Defends against silent breakage when the llama.cpp submodule is bumped.
+  # Skipped on pushes that do not touch patches/ or the submodule reference.
+  llamacpp-patches:
+    name: llama.cpp patch dry-run
+    runs-on: ubuntu-latest
+    if: |
+      contains(toJSON(github.event.commits.*.modified), 'patches/') ||
+      contains(toJSON(github.event.commits.*.modified), '.gitmodules') ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Dry-run patch application
+        run: |
+          if [[ -x scripts/apply_llamacpp_patches.sh ]]; then
+            bash scripts/apply_llamacpp_patches.sh --check || \
+              (echo "::error::llama.cpp patches no longer apply cleanly" && exit 1)
+          else
+            echo "scripts/apply_llamacpp_patches.sh missing; skipping"
+          fi

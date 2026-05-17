@@ -35,7 +35,7 @@ under [`patches/llama.cpp/`](../patches/llama.cpp/) and applied by
 [`scripts/apply_llamacpp_patches.sh`](../scripts/apply_llamacpp_patches.sh).
 
 ```bash
-git clone --recursive https://github.com/SebastianMartinNS/SigmanexSec.git sap-pentest
+git clone --recursive https://github.com/SigmanexSec/SigmanexSec.git sap-pentest
 cd sap-pentest
 
 # If you forgot --recursive:

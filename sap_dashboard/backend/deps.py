@@ -7,7 +7,6 @@ import os
 import secrets
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from fastapi import Depends, HTTPException, Request, status
@@ -16,8 +15,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from core.audit_log import AuditLog
 from core.executor import ToolExecutor
 from core.session_store import SessionStore
-from core.sudo_vault import SudoVault, get_sudo_vault
-
+from core.sudo_vault import get_sudo_vault
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -43,9 +41,9 @@ def reload_config() -> dict:
 _db_path  = os.environ.get("SESSION_DB_PATH", str(REPO_ROOT / "sessions" / "assessments.db"))
 _log_path = os.environ.get("AUDIT_LOG_PATH",  str(REPO_ROOT / "logs" / "audit.jsonl"))
 
-_store: Optional[SessionStore] = None
-_audit: Optional[AuditLog] = None
-_executor: Optional[ToolExecutor] = None
+_store: SessionStore | None = None
+_audit: AuditLog | None = None
+_executor: ToolExecutor | None = None
 
 
 def get_store() -> SessionStore:
@@ -90,7 +88,7 @@ def _expected_creds() -> tuple[str, str] | None:
 
 def require_auth(
     request: Request,
-    credentials: Optional[HTTPBasicCredentials] = Depends(_basic),
+    credentials: HTTPBasicCredentials | None = Depends(_basic),
 ) -> str:
     """
     Authenticate the request via either:
@@ -110,11 +108,8 @@ def require_auth(
 
     # 1) Session cookie path (preferred for browsers).
     from .security import (
-        CSRF_COOKIE,
         SESSION_COOKIE,
-        csrf_cookie_kwargs,
         refresh_session,
-        session_cookie_kwargs,
         verify_session,
     )
     cookie_token = request.cookies.get(SESSION_COOKIE)
@@ -154,18 +149,19 @@ def require_auth(
             detail="invalid or expired session",
         )
 
-    # 2) HTTP Basic path (API/tests).
+    # 2) HTTP Basic path (API/tests). Verification goes through
+    #    rbac.verify_user_password which uniformly handles both the
+    #    Argon2id `pass_hash` format and the legacy plaintext `pass`
+    #    fallback (the latter emits an `auth.cred.plaintext.deprecated`
+    #    audit event on every successful login). The legacy
+    #    SAP_DASHBOARD_USER/SAP_DASHBOARD_PASS bootstrap user is
+    #    auto-grafted into the directory as admin by `_load_user_directory`.
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="auth required",
             headers={"WWW-Authenticate": 'Basic realm="SAP"'},
         )
-    user_ok = secrets.compare_digest(credentials.username.encode(), expected[0].encode())
-    pass_ok = secrets.compare_digest(credentials.password.encode(), expected[1].encode())
-    if user_ok and pass_ok:
-        return credentials.username
-    # Multi-user (P2.3) fall-back: try the directory.
     from .rbac import verify_user_password
     if verify_user_password(credentials.username, credentials.password):
         return credentials.username

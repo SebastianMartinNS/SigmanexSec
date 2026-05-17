@@ -1,0 +1,19 @@
+{
+  "$schema": "./profile.schema.json",
+  "name": "blueteam",
+  "description": "Detection-engineering / IR helpers (sigma-generator, generate_detection_rule, simulate_response, incident_report). Defensive tooling — pure local computation, no network needed. Most restrictive profile.",
+  "bind_ro": ["/usr", "/etc", "/lib", "/lib64", "/bin", "/sbin"],
+  "workdir_template": "/tmp/sap-{run_id}/blueteam",
+  "workdir_mount": "/work",
+  "tmpfs": ["/tmp", "/var/tmp"],
+  "dev": true,
+  "proc": true,
+  "as_pid_1": true,
+  "unshare_user": true,
+  "unshare_pid": true,
+  "unshare_ipc": true,
+  "unshare_uts": true,
+  "network_policy": "none",
+  "caps_drop": ["ALL"],
+  "caps_keep": []
+}

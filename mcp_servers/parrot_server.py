@@ -18,31 +18,46 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
 
 from core.audit_log import AuditLog
-from core.executor import ToolExecutor, SecurityError
+from core.executor import SecurityError, ToolExecutor
 from core.interactive_session import (
-    SessionError, SessionLimitReached, SessionNotFound, get_manager,
+    SessionError,
+    SessionLimitReached,
+    SessionNotFound,
+    get_manager,
 )
-from core.models import AuditEntry, Phase
+from core.models import Phase
 from core.parrot_catalog import (
-    CatalogError, auto_artifact_flags, binary_available, descriptor_doc,
-    gap_report, get_descriptor, list_by_category, list_names, load_catalog,
-    materialize_artifact_flags, render_argv, response_profile_for,
+    CatalogError,
+    auto_artifact_flags,
+    binary_available,
+    descriptor_doc,
+    gap_report,
+    get_descriptor,
+    list_by_category,
+    list_names,
+    load_catalog,
+    materialize_artifact_flags,
+    render_argv,
+    response_profile_for,
 )
 from core.scope_validator import IdentityKind, ScopeValidator, ScopeViolation
 from core.session_store import SessionStore
 from core.sudo_vault import SudoLocked
 from core.tool_output_store import get_tool_output_store
-from mcp_servers._response import build_tool_response, register_resource_handlers
-
+from mcp_servers._response import (
+    build_tool_response,
+    register_resource_handlers,
+    register_run_context_tool,
+)
 
 # ── Singletons ───────────────────────────────────────────────────────────────
 
@@ -55,6 +70,7 @@ _exe  = ToolExecutor(audit_log=audit)
 
 mcp = FastMCP("pentest-parrot")
 register_resource_handlers(mcp, get_tool_output_store, server_suffix="parrot")
+register_run_context_tool(mcp, _exe, server_suffix="parrot")
 
 # Per-engagement lock around `_exe._scope` mutation. Prevents the documented
 # race when concurrent MCP HTTP calls target the same shared executor.
@@ -81,7 +97,7 @@ _SCOPE_ARG_TO_IDENTITY_KIND: dict[str, IdentityKind] = {
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
-async def _scope_for(engagement_id: str) -> tuple[Optional[ScopeValidator], Optional[object]]:
+async def _scope_for(engagement_id: str) -> tuple[ScopeValidator | None, object | None]:
     """Return ``(scope, engagement)`` or ``(None, None)`` if unknown.
 
     The engagement is returned alongside the scope so callers can inspect
@@ -158,28 +174,16 @@ async def parrot_tool_describe(name: str) -> dict:
     }
 
 
-@mcp.tool()
-async def parrot_tool_run(
-    name: str,
+async def _run_descriptor(
+    d: dict,
     engagement_id: str,
     args_json: str = "{}",
     phase: str = "scanning",
     timeout_seconds: int = 0,
 ) -> dict:
-    """
-    Validate args, render argv, and execute a catalogue tool.
-
-    Inputs:
-      name            — descriptor name (see parrot_list_tools)
-      engagement_id   — required for scope enforcement & audit
-      args_json       — JSON object string matching descriptor.args_schema
-      phase           — PTES phase string (defaults to scanning)
-      timeout_seconds — override descriptor default (0 = use default)
-    """
-    d = get_descriptor(name)
-    if not d:
-        return {"error": f"unknown tool '{name}'"}
-
+    """Shared execution path used by ``parrot_tool_run`` and the per-tool
+    MCP wrappers registered dynamically from the catalogue."""
+    name = d.get("name", "")
     try:
         args = json.loads(args_json) if args_json else {}
     except json.JSONDecodeError as e:
@@ -203,7 +207,7 @@ async def parrot_tool_run(
         return {"error": f"engagement '{engagement_id}' not found"}
 
     is_osint = (d.get("category") == "osint") or bool(d.get("pii"))
-    identity_kind: Optional[IdentityKind] = None
+    identity_kind: IdentityKind | None = None
     if is_osint:
         if not (eng.osint_authorization_ref or "").strip():
             return {"error": (
@@ -257,7 +261,7 @@ async def parrot_tool_run(
     # Pre-allocate the ToolOutputStore call directory so we can inject
     # auto-artifact flags (-oA, --output-dir, …) pointing at it BEFORE the
     # process runs. The executor will reuse the same call_id when persisting.
-    pre_call_id: Optional[str] = None
+    pre_call_id: str | None = None
     run_id = _exe._run_id  # type: ignore[attr-defined]
     if run_id:
         try:
@@ -321,6 +325,34 @@ async def parrot_tool_run(
         head_bytes=profile["head_bytes"],
         tail_bytes=profile["tail_bytes"],
     )
+
+
+@mcp.tool()
+async def parrot_tool_run(
+    name: str,
+    engagement_id: str,
+    args_json: str = "{}",
+    phase: str = "scanning",
+    timeout_seconds: int = 0,
+) -> dict:
+    """
+    Validate args, render argv, and execute a catalogue tool by name.
+
+    Generic dispatcher kept for backward compatibility. Each catalogue
+    tool is also exposed as its own MCP tool ``parrot_<name>`` (see
+    ``parrot_list_tools`` / ``tools/list``).
+
+    Inputs:
+      name            — descriptor name (see parrot_list_tools)
+      engagement_id   — required for scope enforcement & audit
+      args_json       — JSON object string matching descriptor.args_schema
+      phase           — PTES phase string (defaults to scanning)
+      timeout_seconds — override descriptor default (0 = use default)
+    """
+    d = get_descriptor(name)
+    if not d:
+        return {"error": f"unknown tool '{name}'"}
+    return await _run_descriptor(d, engagement_id, args_json, phase, timeout_seconds)
 
 
 # ── Interactive sessions ─────────────────────────────────────────────────────
@@ -408,6 +440,82 @@ async def parrot_session_list(engagement_id: str = "") -> dict:
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
+
+# Dynamically register one MCP tool per catalogue descriptor so every
+# Parrot tool is individually visible via ``tools/list`` (in addition to
+# the generic ``parrot_tool_run`` dispatcher).
+#
+# Naming: ``parrot_<descriptor.name>`` — the prefix avoids collisions
+# with first-class tools exposed by the other MCP servers.
+def _register_catalog_tools() -> int:
+    import json as _json
+    registered = 0
+    seen: set[str] = set()
+    for _d in load_catalog():
+        _name = _d.get("name")
+        if not _name:
+            continue
+        _tool_name = f"parrot_{_name}"
+        if _tool_name in seen:
+            continue
+        seen.add(_tool_name)
+
+        _schema = _d.get("args_schema") or {}
+        _desc_lines = [
+            (_d.get("description") or _name).strip(),
+            "",
+            f"Category: {_d.get('category', 'misc')}  |  "
+            f"Binary: {_d.get('binary', _name)}  |  "
+            f"Risk: {_d.get('risk_level', 'unknown')}  |  "
+            f"Sudo: {bool(_d.get('requires_sudo'))}",
+        ]
+        if _schema:
+            _desc_lines += [
+                "",
+                "args_json must be a JSON object matching this schema:",
+                _json.dumps(_schema, indent=2, ensure_ascii=False),
+            ]
+        _description = "\n".join(_desc_lines)
+
+        def _make(descriptor_name: str):
+            async def _wrapper(
+                engagement_id: str,
+                args_json: str = "{}",
+                phase: str = "scanning",
+                timeout_seconds: int = 0,
+            ) -> dict:
+                _d2 = get_descriptor(descriptor_name)
+                if not _d2:
+                    return {"error": f"unknown tool '{descriptor_name}'"}
+                return await _run_descriptor(
+                    _d2, engagement_id, args_json, phase, timeout_seconds
+                )
+            _wrapper.__name__ = f"parrot_{descriptor_name}"
+            _wrapper.__qualname__ = _wrapper.__name__
+            return _wrapper
+
+        try:
+            mcp.add_tool(
+                _make(_name),
+                name=_tool_name,
+                description=_description,
+            )
+            registered += 1
+        except Exception as exc:  # pragma: no cover - defensive
+            print(
+                f"[parrot_server] failed to register '{_tool_name}': {exc}",
+                file=sys.stderr,
+            )
+    return registered
+
+
+_REGISTERED_CATALOG_TOOLS = _register_catalog_tools()
+print(
+    f"[parrot_server] dynamically registered {_REGISTERED_CATALOG_TOOLS} "
+    "catalogue tools",
+    file=sys.stderr,
+)
+
 
 if __name__ == "__main__":
     mcp.run()

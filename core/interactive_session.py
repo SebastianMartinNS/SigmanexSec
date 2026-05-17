@@ -31,7 +31,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 try:
     import pexpect
@@ -44,13 +43,14 @@ else:
 import yaml
 
 from core.audit_log import AuditLog
-from core.models import AuditEntry, Phase
+from core.models import AuditEntry
 from core.parrot_catalog import (
-    CatalogError, get_descriptor, render_argv,
+    CatalogError,
+    get_descriptor,
+    render_argv,
 )
 from core.scope_validator import ScopeValidator, ScopeViolation
 from core.sudo_vault import get_sudo_vault
-
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
@@ -96,8 +96,8 @@ class _Session:
     tool: str
     engagement_id: str
     actor: str
-    target: Optional[str]
-    proc: "pexpect.spawn"
+    target: str | None
+    proc: pexpect.spawn
     created_at: float = field(default_factory=time.time)
     last_used: float = field(default_factory=time.time)
     closed: bool = False
@@ -112,7 +112,7 @@ class InteractiveSessionManager:
     singleton (see ``get_manager``); not safe to instantiate twice.
     """
 
-    def __init__(self, audit_log: Optional[AuditLog] = None):
+    def __init__(self, audit_log: AuditLog | None = None):
         self._sessions: dict[str, _Session] = {}
         self._lock = asyncio.Lock()
         self._audit = audit_log or AuditLog()
@@ -125,8 +125,8 @@ class InteractiveSessionManager:
         engagement_id: str,
         args: dict,
         actor: str = "agent",
-        scope: Optional[ScopeValidator] = None,
-        env: Optional[dict] = None,
+        scope: ScopeValidator | None = None,
+        env: dict | None = None,
     ) -> dict:
         if pexpect is None:
             raise SessionError(
@@ -147,7 +147,7 @@ class InteractiveSessionManager:
         try:
             argv, norm_args = render_argv(d, args)
         except CatalogError as e:
-            raise SessionError(f"validation: {e}")
+            raise SessionError(f"validation: {e}") from e
 
         # Scope enforcement
         scope_key = d.get("scope_arg")
@@ -161,7 +161,7 @@ class InteractiveSessionManager:
                     "session_denied", target,
                     {"tool": tool_name, "reason": "scope", "detail": str(e)},
                 )
-                raise SessionError(f"scope: {e}")
+                raise SessionError(f"scope: {e}") from e
 
         async with self._lock:
             # Cap enforcement
@@ -179,7 +179,7 @@ class InteractiveSessionManager:
             # Spawn
             binary = d["binary"]
             cmd_argv: list[str] = []
-            sudo_pwd_bytes: Optional[bytes] = None
+            sudo_pwd_bytes: bytes | None = None
             if d.get("requires_sudo"):
                 vault = get_sudo_vault()
                 if not await vault.is_unlocked():
@@ -203,7 +203,7 @@ class InteractiveSessionManager:
                     echo=False,
                 )
             except Exception as e:
-                raise SessionError(f"spawn failed: {e}")
+                raise SessionError(f"spawn failed: {e}") from e
 
             # Feed the sudo password exactly once on stdin, then forget it.
             if sudo_pwd_bytes is not None:
@@ -248,7 +248,7 @@ class InteractiveSessionManager:
         self,
         session_id: str,
         text: str,
-        expect_prompt: Optional[str] = None,
+        expect_prompt: str | None = None,
         timeout: float = 15.0,
     ) -> dict:
         sess = self._require(session_id)
@@ -262,7 +262,7 @@ class InteractiveSessionManager:
             sess.proc.send(payload)
         except Exception as e:
             sess.closed = True
-            raise SessionDead(f"send failed: {e}")
+            raise SessionDead(f"send failed: {e}") from e
         sess.cumulative_bytes_sent += len(payload)
         sess.last_used = time.time()
 
@@ -330,7 +330,7 @@ class InteractiveSessionManager:
             "duration_seconds": round(time.time() - sess.created_at, 2),
         }
 
-    def list(self, engagement_id: Optional[str] = None) -> list[dict]:
+    def list(self, engagement_id: str | None = None) -> list[dict]:
         out = []
         for s in self._sessions.values():
             if engagement_id and s.engagement_id != engagement_id:
@@ -376,7 +376,7 @@ class InteractiveSessionManager:
     async def _read_until(
         self,
         sess: _Session,
-        prompts: Optional[list[str]],
+        prompts: list[str] | None,
         timeout: float,
     ) -> str:
         """
@@ -441,7 +441,7 @@ class InteractiveSessionManager:
 
 # ── Singleton ──────────────────────────────────────────────────────────────
 
-_MANAGER: Optional[InteractiveSessionManager] = None
+_MANAGER: InteractiveSessionManager | None = None
 
 
 def get_manager() -> InteractiveSessionManager:

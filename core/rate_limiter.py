@@ -28,7 +28,6 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 def _db_path() -> Path:
@@ -58,7 +57,7 @@ class RateLimitResult:
 class RateLimiter:
     """SQLite-backed sliding-window limiter with lockout."""
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = db_path or _db_path()
         self._init_db()
 
@@ -191,7 +190,7 @@ class RateLimiter:
             pass
 
 
-_LIMITER: Optional[RateLimiter] = None
+_LIMITER: RateLimiter | None = None
 
 
 def get_rate_limiter() -> RateLimiter:

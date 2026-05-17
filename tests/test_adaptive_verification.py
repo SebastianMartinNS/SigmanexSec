@@ -1,7 +1,7 @@
 """Tests for the Phase-5 verification & operator-feedback layer."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 

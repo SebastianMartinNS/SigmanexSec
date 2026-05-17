@@ -13,7 +13,6 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import aiosqlite
 from cryptography.hazmat.primitives import hashes
@@ -41,13 +40,14 @@ _log = logging.getLogger(__name__)
 
 _LEGACY_DEV_KEY = b"SAP_DEV_KEY_CHANGE_ME_IN_PROD!!"
 _PBKDF2_ITERATIONS = 480_000  # OWASP 2023 baseline for SHA-256
-_KEY_CACHE: Optional[bytes] = None
+_KEY_CACHE: bytes | None = None
 # Guards concurrent first-use of ``_derive_key``; without it, two threads
 # (or a sync + async caller) could both run the expensive PBKDF2 stretch
 # and then race on assigning ``_KEY_CACHE``. Using ``threading.Lock``
 # rather than ``asyncio.Lock`` because ``_derive_key`` is sync and may be
 # invoked from arbitrary threads (e.g. the audit GC worker).
 import threading as _threading
+
 _KEY_CACHE_LOCK = _threading.Lock()
 
 
@@ -360,7 +360,7 @@ class SessionStore:
             await db.commit()
         return eng
 
-    async def get_engagement(self, eng_id: str) -> Optional[Engagement]:
+    async def get_engagement(self, eng_id: str) -> Engagement | None:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -400,12 +400,12 @@ class SessionStore:
         self,
         eng_id: str,
         *,
-        osint_authorization_ref: Optional[str] = None,
-        scope_emails: Optional[list[str]] = None,
-        scope_usernames: Optional[list[str]] = None,
-        scope_persons: Optional[list[str]] = None,
-        scope_social_handles: Optional[list[str]] = None,
-        rules_of_engagement: Optional[str] = None,
+        osint_authorization_ref: str | None = None,
+        scope_emails: list[str] | None = None,
+        scope_usernames: list[str] | None = None,
+        scope_persons: list[str] | None = None,
+        scope_social_handles: list[str] | None = None,
+        rules_of_engagement: str | None = None,
     ) -> None:
         """Patch identity scope and OSINT authorization on an existing engagement.
 
@@ -440,7 +440,7 @@ class SessionStore:
         vals.append(eng_id)
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                f"UPDATE engagements SET {', '.join(sets)} WHERE id=?",
+                f"UPDATE engagements SET {', '.join(sets)} WHERE id=?",  # noqa: S608
                 tuple(vals),
             )
             await db.commit()
@@ -539,7 +539,7 @@ class SessionStore:
                 rows = await cur.fetchall()
         return [self._row_to_finding(r) for r in rows]
 
-    async def get_finding(self, finding_id: str) -> Optional[Finding]:
+    async def get_finding(self, finding_id: str) -> Finding | None:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -588,7 +588,7 @@ class SessionStore:
                            confidence_rationale = ?,
                            freshness_ts = ?,
                            {count_clause}
-                     WHERE id = ?""",
+                     WHERE id = ?""",  # noqa: S608 — count_clause is an internal template, never user-controlled
                 params,
             )
             await db.commit()

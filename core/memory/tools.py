@@ -116,7 +116,7 @@ def builtin_tool_specs() -> list[dict]:
 
 
 async def dispatch_builtin_tool(
-    name: str, args: dict, memory: "MemoryManager"
+    name: str, args: dict, memory: MemoryManager
 ) -> str:
     """Execute a builtin memory tool. Returns a JSON-encoded string."""
     try:

@@ -4,8 +4,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 _REPO = Path(__file__).resolve().parent.parent
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
@@ -55,6 +53,38 @@ def test_fuzzy_signature_distinguishes_unrelated_calls():
     a = o._fuzzy_signature("nmap_scan", {"target": "10.0.0.1", "ports": "1-1000"})
     b = o._fuzzy_signature("dirb_fuzz", {"url": "http://example.com/admin"})
     assert a != b, "unrelated tool calls must have distinct signatures"
+
+
+def test_fuzzy_signature_collapses_url_scheme_and_www():
+    """Phase 3: ``http://x`` / ``https://x`` / ``https://www.x/`` must
+    share a signature so the agent cannot dodge the breaker by toggling
+    scheme or trailing slash."""
+    from agent.orchestrator import Orchestrator
+
+    o = Orchestrator.__new__(Orchestrator)
+    base = o._fuzzy_signature("nuclei_scan", {"target": "http://sigmanex.net"})
+    for variant in (
+        "https://sigmanex.net",
+        "https://www.sigmanex.net",
+        "http://sigmanex.net/",
+        "https://www.sigmanex.net/",
+    ):
+        sig = o._fuzzy_signature("nuclei_scan", {"target": variant})
+        assert sig == base, f"URL variant {variant!r} must collapse to base signature"
+
+
+def test_fuzzy_signature_collapses_csv_severity_permutations():
+    """Phase 3: severity CSV permutations must share a signature."""
+    from agent.orchestrator import Orchestrator
+
+    o = Orchestrator.__new__(Orchestrator)
+    base = o._fuzzy_signature("nuclei_scan", {
+        "target": "http://x", "severity": "critical,high"
+    })
+    expanded = o._fuzzy_signature("nuclei_scan", {
+        "target": "http://x", "severity": "critical,high,medium"
+    })
+    assert base == expanded, "severity superset must collapse with subset"
 
 
 # ── Memory truncation: HEAD preserved ──────────────────────────────────────

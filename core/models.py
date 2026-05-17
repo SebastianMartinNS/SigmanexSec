@@ -5,18 +5,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from enum import Enum
-from typing import Any, Optional
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from core.time_utils import utcnow as _sap_utcnow
 
+from core.time_utils import utcnow as _sap_utcnow
 
 # ─────────────────────────────────────────────
 # Enumerations
 # ─────────────────────────────────────────────
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "critical"
     HIGH     = "high"
     MEDIUM   = "medium"
@@ -24,7 +24,7 @@ class Severity(str, Enum):
     INFO     = "info"
 
 
-class FindingCategory(str, Enum):
+class FindingCategory(StrEnum):
     SQLI         = "sql_injection"
     RCE          = "remote_code_execution"
     LFI          = "local_file_inclusion"
@@ -42,14 +42,14 @@ class FindingCategory(str, Enum):
     OTHER        = "other"
 
 
-class EngagementStatus(str, Enum):
+class EngagementStatus(StrEnum):
     ACTIVE   = "active"
     PAUSED   = "paused"
     COMPLETE = "complete"
     ARCHIVED = "archived"
 
 
-class Phase(str, Enum):
+class Phase(StrEnum):
     SCOPING       = "scoping"
     RECON         = "reconnaissance"
     SCANNING      = "scanning"
@@ -207,7 +207,7 @@ class Host(BaseModel):
 class Finding(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     engagement_id: str
-    host_id: Optional[str] = None
+    host_id: str | None = None
     severity: Severity
     category: FindingCategory
     title: str
@@ -244,7 +244,7 @@ class Finding(BaseModel):
 class Credential(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     engagement_id: str
-    host_id: Optional[str] = None
+    host_id: str | None = None
     service: str = ""
     username: str = ""
     # raw fields stored ENCRYPTED in DB, exposed here as plaintext only in-memory
@@ -300,7 +300,7 @@ class ExecutionResult(BaseModel):
     # Reference to the persisted full output (set when the executor's
     # ToolOutputStore is enabled). When unset the legacy in-memory-only
     # behavior is preserved.
-    output_ref: Optional[ToolOutputRefModel] = None
+    output_ref: ToolOutputRefModel | None = None
     # Full byte counts as captured BEFORE any in-memory cap was applied.
     stdout_bytes_full: int = 0
     stderr_bytes_full: int = 0

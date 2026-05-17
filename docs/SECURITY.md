@@ -29,6 +29,7 @@ backported only to release tags created in the last 90 days.
 | Engagement data                | Tamper, exfiltration                    | RBAC, BLAKE2b audit chain, append-only sink           |
 | Sudo broker                    | Privilege escalation                    | UNIX socket only, peer-uid check, audit, no NNP-relax |
 | MCP servers                    | Sandbox escape                          | systemd hardening, seccomp, RestrictAddressFamilies   |
+| LLM context (n_ctx)            | Prompt-explosion DoS via tool stdout    | 4-layer cap: executor max_output_bytes, MCP hard cap (`SAP_MCP_HARD_CAP_BYTES`), agent-side smart truncation, pre-flight `SAP_PROMPT_TOKEN_BUDGET` guard |
 | Logs                           | Repudiation                             | Hash chain + external sink + WORM mirror              |
 
 ## Dependencies

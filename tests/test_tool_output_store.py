@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import gzip
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import timedelta
 
 import pytest
 
 from core.time_utils import utcnow as _sap_utcnow
 from core.tool_output_store import (
-    ToolOutputStore,
     ToolOutputRef,
+    ToolOutputStore,
     reset_tool_output_store,
 )
 

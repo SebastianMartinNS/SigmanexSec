@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from enum import Enum
-from typing import Any, Optional
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
+
 from core.time_utils import utcnow as _sap_utcnow
 
 
-class RunMode(str, Enum):
+class RunMode(StrEnum):
     PLANNING  = "planning"
     EXECUTION = "execution"
     STEP      = "step"

@@ -20,15 +20,14 @@ CLI is wired in `cli.py` — `python cli.py gdpr ...`.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import os
 import shutil
 import time
 from dataclasses import dataclass, field
+from datetime import UTC
 from pathlib import Path
-from typing import Optional
 
 from core.audit_log import AuditLog
 from core.models import AuditEntry
@@ -65,9 +64,9 @@ class RetentionResult:
 async def purge_engagement(
     engagement_id: str,
     *,
-    db_path: Optional[str] = None,
-    audit_path: Optional[str] = None,
-    reports_path: Optional[str] = None,
+    db_path: str | None = None,
+    audit_path: str | None = None,
+    reports_path: str | None = None,
     actor: str = "operator",
     reason: str = "gdpr_request",
 ) -> PurgeResult:
@@ -168,7 +167,7 @@ def _audit_purge_engagement(audit_file: Path, engagement_id: str) -> int:
     removed = 0
     new_lines: list[str] = []
     prev_hash = ""
-    with open(audit_file, "r", encoding="utf-8") as f:
+    with open(audit_file, encoding="utf-8") as f:
         for raw in f:
             line = raw.strip()
             if not line:
@@ -219,7 +218,7 @@ async def apply_retention(
     *,
     audit_max_age_days: int = 180,
     tool_output_max_age_days: int = 180,
-    audit_path: Optional[str] = None,
+    audit_path: str | None = None,
     actor: str = "system",
 ) -> RetentionResult:
     """Drop audit lines and tool outputs older than the retention windows."""
@@ -269,12 +268,12 @@ async def apply_retention(
 
 def _audit_purge_older_than(audit_file: Path, cutoff_epoch: float) -> int:
     """Drop entries with ``timestamp`` older than ``cutoff_epoch`` (UTC ts)."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     removed = 0
     new_lines: list[str] = []
     prev_hash = ""
-    with open(audit_file, "r", encoding="utf-8") as f:
+    with open(audit_file, encoding="utf-8") as f:
         for raw in f:
             line = raw.strip()
             if not line:
@@ -288,7 +287,7 @@ def _audit_purge_older_than(audit_file: Path, cutoff_epoch: float) -> int:
             try:
                 ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=UTC)
                 ts_epoch = ts.timestamp()
             except Exception:
                 ts_epoch = cutoff_epoch  # cannot parse → keep
