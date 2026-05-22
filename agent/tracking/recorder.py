@@ -99,7 +99,7 @@ class AgentStepRecorder:
     def __init__(
         self,
         *,
-        audit_log: "AuditLog | None",
+        audit_log: AuditLog | None,
         run_id: str,
         engagement_id: str = "-",
         role: str = "legacy_monolithic",
@@ -119,11 +119,11 @@ class AgentStepRecorder:
     def get(
         cls,
         *,
-        audit_log: "AuditLog | None",
+        audit_log: AuditLog | None,
         run_id: str,
         engagement_id: str = "-",
         role: str = "legacy_monolithic",
-    ) -> "AgentStepRecorder | _NullRecorder":
+    ) -> AgentStepRecorder | _NullRecorder:
         if not _flag_enabled() or audit_log is None:
             return _NullRecorder()
         return cls(

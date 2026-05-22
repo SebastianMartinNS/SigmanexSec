@@ -38,7 +38,6 @@ from core.tracking.encrypted_sink import (
     encrypt_value,
 )
 
-
 # ── Action catalog ──────────────────────────────────────────────────────────
 
 
@@ -118,7 +117,7 @@ async def test_recorder_full_lifecycle_audited(tmp_paths, monkeypatch):
     # Make sure encryption stays off so we can grep payloads in plaintext.
     monkeypatch.setenv("SAP_AUDIT_ENCRYPT", "0")
 
-    log_path = Path(tmp_paths_path := __import__("os").environ["AUDIT_LOG_PATH"])
+    log_path = Path(_tmp_paths_path := __import__("os").environ["AUDIT_LOG_PATH"])
     log = AuditLog(log_path=str(log_path))
     rec = AgentStepRecorder.get(audit_log=log, run_id="r1", engagement_id="e1", role="planner")
     assert not isinstance(rec, _NullRecorder)

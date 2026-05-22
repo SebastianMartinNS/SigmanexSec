@@ -31,7 +31,7 @@ class _NullSpan:
     def record_exception(self, *_args: Any, **_kwargs: Any) -> None: ...
     def add_event(self, *_args: Any, **_kwargs: Any) -> None: ...
 
-    def __enter__(self) -> "_NullSpan":
+    def __enter__(self) -> _NullSpan:
         return self
 
     def __exit__(self, *_exc: Any) -> None:

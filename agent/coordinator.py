@@ -19,14 +19,13 @@ import os
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agent.coordination.handoff import AgentContext, CompletedTask
 from agent.roles import Role, get_registry
 from agent.state import AgentState, AgentStateMachine
 from core.models import Phase
 from core.role_validator import RoleViolation, get_role_validator
-from core.time_utils import utcnow as _sap_utcnow
 
 if TYPE_CHECKING:                                  # pragma: no cover
     from agent.tracking.recorder import AgentStepRecorder, _NullRecorder
@@ -72,7 +71,7 @@ class Coordinator:
         engagement_id: str,
         run_id: str | None = None,
         driver: RoleDriver,
-        recorder: "AgentStepRecorder | _NullRecorder | None" = None,
+        recorder: AgentStepRecorder | _NullRecorder | None = None,
         initial_role: str = "planner",
         initial_phase: Phase = Phase.SCOPING,
         max_handoffs: int = 32,
@@ -122,7 +121,7 @@ class Coordinator:
         """
         self._sm.transition(AgentState.PLANNING, reason="coordinator.start")
         ctx: AgentContext | None = None
-        for hop in range(self._max_handoffs):
+        for _hop in range(self._max_handoffs):
             try:
                 role = self._role(self._current_role)
             except RoleViolation as exc:
@@ -197,7 +196,8 @@ def _legacy_monolithic_role(phase: Phase) -> Role:
     """
     persona_path = Path(__file__).resolve().parent / "prompts" / "system_prompt.md"
     rel = str(persona_path.relative_to(Path(__file__).resolve().parents[1]))
-    from agent.roles.schema import Role as _Role, RoleCapabilityGuard
+    from agent.roles.schema import Role as _Role
+    from agent.roles.schema import RoleCapabilityGuard
     return _Role(
         id="legacy_monolithic",
         name="Single-Agent (legacy v2.3)",

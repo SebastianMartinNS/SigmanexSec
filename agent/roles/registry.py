@@ -39,7 +39,7 @@ class RoleRegistry:
     # ------------------------------------------------------------------
 
     @classmethod
-    def load_default(cls) -> "RoleRegistry":
+    def load_default(cls) -> RoleRegistry:
         """Load every ``*.yaml`` next to this module."""
         reg = cls()
         reg.load_from_dir(Path(__file__).parent)

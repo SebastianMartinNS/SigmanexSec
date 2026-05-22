@@ -413,6 +413,8 @@ Do not replace `llama.cpp/` with a fresh upstream checkout.
 - [docs/IR_RUNBOOK.md](docs/IR_RUNBOOK.md) — incident response runbook.
 - [docs/INSTALL.md](docs/INSTALL.md) — single-machine developer bootstrap.
 - [docs/osint.md](docs/osint.md) — identity OSINT tools reference (PII handling rules included).
+- [docs/migration_v2.3_to_v3.0.md](docs/migration_v2.3_to_v3.0.md) — upgrade walkthrough + every new `SAP_V3_*` / `SAP_AGENT_MODE` flag.
+- [docs/CONTRIBUTING_ROLES.md](docs/CONTRIBUTING_ROLES.md) — adding a new YAML-editable agent role (multi-agent mode).
 
 **Component-level:**
 - [sap_dashboard/README.md](sap_dashboard/README.md) — dashboard quick start + API.

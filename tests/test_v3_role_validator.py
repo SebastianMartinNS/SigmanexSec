@@ -11,8 +11,7 @@ import pytest
 
 from agent.roles import get_registry
 from core.models import Phase
-from core.role_validator import RoleValidator, RoleViolation, get_role_validator
-
+from core.role_validator import RoleViolation, get_role_validator
 
 # ── Registry --------------------------------------------------------------
 

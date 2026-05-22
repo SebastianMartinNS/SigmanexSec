@@ -18,7 +18,6 @@ from agent.state import AgentState
 from core.audit_log import AuditLog, verify_audit_chain
 from core.models import Phase
 
-
 # ── Coordinator default mode --------------------------------------------
 
 
@@ -69,7 +68,7 @@ async def test_coordinator_blocks_illegal_handoff():
         # closure would try to hand off from reporter.
         ("planner", Phase.SCOPING, "back to start"),
     ]
-    coord = Coordinator(
+    Coordinator(
         engagement_id="eng-test",
         driver=make_dummy_driver(handoff_plan=bad_plan),
         initial_role="planner",

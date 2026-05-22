@@ -51,7 +51,7 @@ class ChatMessage(BaseModel):
 
     role: Role
     content: str = ""
-    tool_calls: list["ParsedToolCall"] = Field(default_factory=list)
+    tool_calls: list[ParsedToolCall] = Field(default_factory=list)
     tool_call_id: str = ""
     name: str = ""                                 # tool name for tool-role
     raw: dict[str, Any] | None = None              # provider-native payload

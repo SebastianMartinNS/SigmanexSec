@@ -25,10 +25,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from mcp.server.fastmcp import FastMCP
 
 from core.models import Severity
-from core.session_store import SessionStore
 
 # v3.1 W1.4 — shared SessionStore via DI container. Blueteam server does
 # not expose tool-execution (no ``audit``/``_exe``/run-context tool), so

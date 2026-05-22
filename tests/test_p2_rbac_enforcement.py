@@ -29,6 +29,7 @@ import pytest
 _RBAC_PUBLIC_PATHS = {
     "/healthz",
     "/readyz",
+    "/metrics",  # v3.0: Prometheus exposition — same hygiene as /healthz
     "/api/health",  # legacy alias of /healthz
     "/api/auth/login",
     "/api/auth/logout",

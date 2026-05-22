@@ -72,7 +72,7 @@ class ToolCallRequest:
     # Helpers
     # ------------------------------------------------------------------
 
-    def with_call_id(self) -> "ToolCallRequest":
+    def with_call_id(self) -> ToolCallRequest:
         """Return a copy with ``call_id`` populated. Idempotent."""
         if self.call_id:
             return self
@@ -100,7 +100,7 @@ class ToolCallRequest:
         }
 
     @classmethod
-    def builder(cls, tool: str) -> "ToolCallRequestBuilder":
+    def builder(cls, tool: str) -> ToolCallRequestBuilder:
         return ToolCallRequestBuilder(tool)
 
 
@@ -124,56 +124,56 @@ class ToolCallRequestBuilder:
     def __init__(self, tool: str) -> None:
         self._data: dict[str, Any] = {"tool": tool}
 
-    def args(self, args: list[str]) -> "ToolCallRequestBuilder":
+    def args(self, args: list[str]) -> ToolCallRequestBuilder:
         self._data["args"] = list(args)
         return self
 
-    def engagement(self, engagement_id: str) -> "ToolCallRequestBuilder":
+    def engagement(self, engagement_id: str) -> ToolCallRequestBuilder:
         self._data["engagement_id"] = engagement_id
         return self
 
-    def phase(self, phase: Phase) -> "ToolCallRequestBuilder":
+    def phase(self, phase: Phase) -> ToolCallRequestBuilder:
         self._data["phase"] = phase
         return self
 
-    def target(self, target: str) -> "ToolCallRequestBuilder":
+    def target(self, target: str) -> ToolCallRequestBuilder:
         self._data["target"] = target
         return self
 
-    def identity(self, value: str, kind: str) -> "ToolCallRequestBuilder":
+    def identity(self, value: str, kind: str) -> ToolCallRequestBuilder:
         self._data["identity_target"] = (value, kind)
         self._data["pii"] = True
         return self
 
-    def timeout(self, seconds: int) -> "ToolCallRequestBuilder":
+    def timeout(self, seconds: int) -> ToolCallRequestBuilder:
         self._data["timeout"] = seconds
         return self
 
-    def cwd(self, path: str) -> "ToolCallRequestBuilder":
+    def cwd(self, path: str) -> ToolCallRequestBuilder:
         self._data["cwd"] = path
         return self
 
-    def sudo(self, required: bool = True, reason: str = "") -> "ToolCallRequestBuilder":
+    def sudo(self, required: bool = True, reason: str = "") -> ToolCallRequestBuilder:
         self._data["requires_sudo"] = required
         if reason:
             self._data["sudo_reason"] = reason
         return self
 
-    def sandbox(self, profile: str, category: str | None = None) -> "ToolCallRequestBuilder":
+    def sandbox(self, profile: str, category: str | None = None) -> ToolCallRequestBuilder:
         self._data["sandbox_profile"] = profile
         if category:
             self._data["sandbox_category"] = category
         return self
 
-    def role(self, role_id: str) -> "ToolCallRequestBuilder":
+    def role(self, role_id: str) -> ToolCallRequestBuilder:
         self._data["role_id"] = role_id
         return self
 
-    def call_id(self, call_id: str) -> "ToolCallRequestBuilder":
+    def call_id(self, call_id: str) -> ToolCallRequestBuilder:
         self._data["call_id"] = call_id
         return self
 
-    def pii(self, flag: bool = True) -> "ToolCallRequestBuilder":
+    def pii(self, flag: bool = True) -> ToolCallRequestBuilder:
         self._data["pii"] = flag
         return self
 

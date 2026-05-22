@@ -15,7 +15,6 @@ demultiplex tool calls.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -65,12 +64,12 @@ def _fresh_container_env(tmp_path, monkeypatch):
 
 def test_six_mcp_servers_share_session_store(_fresh_container_env):
     """All six servers must reference the *same* SessionStore instance."""
-    import mcp_servers.engagement_server as eng
-    import mcp_servers.recon_server as recon
-    import mcp_servers.exploit_server as exp_
     import mcp_servers.blueteam_server as bt
-    import mcp_servers.parrot_server as par
+    import mcp_servers.engagement_server as eng
+    import mcp_servers.exploit_server as exp_
     import mcp_servers.osint_server as osi
+    import mcp_servers.parrot_server as par
+    import mcp_servers.recon_server as recon
 
     stores = [eng.store, recon.store, exp_.store, bt.store, par.store, osi.store]
     assert all(s is stores[0] for s in stores), (
@@ -87,10 +86,10 @@ def test_audit_log_shared_across_tool_bearing_servers(_fresh_container_env):
     forensic integrity property v3.1 restores.
     """
     import mcp_servers.engagement_server as eng
-    import mcp_servers.recon_server as recon
     import mcp_servers.exploit_server as exp_
-    import mcp_servers.parrot_server as par
     import mcp_servers.osint_server as osi
+    import mcp_servers.parrot_server as par
+    import mcp_servers.recon_server as recon
 
     audits = [eng.audit, recon.audit, exp_.audit, par.audit, osi.audit]
     assert all(a is audits[0] for a in audits), (
@@ -102,10 +101,10 @@ def test_tool_executor_shared_across_offensive_servers(_fresh_container_env):
     """The four servers that ship a ToolExecutor (recon / exploit / parrot
     / osint) must reference the same instance — same scope chokepoint,
     same audit log, same sudo vault."""
-    import mcp_servers.recon_server as recon
     import mcp_servers.exploit_server as exp_
-    import mcp_servers.parrot_server as par
     import mcp_servers.osint_server as osi
+    import mcp_servers.parrot_server as par
+    import mcp_servers.recon_server as recon
 
     execs = [recon._exe, exp_._exe, par._exe, osi._exe]
     assert all(e is execs[0] for e in execs), (
@@ -116,12 +115,12 @@ def test_tool_executor_shared_across_offensive_servers(_fresh_container_env):
 def test_mcp_server_names_remain_distinct(_fresh_container_env):
     """Sharing collaborators must not collapse the FastMCP routing layer:
     each server still exposes a unique ``pentest-<name>`` to clients."""
-    import mcp_servers.engagement_server as eng
-    import mcp_servers.recon_server as recon
-    import mcp_servers.exploit_server as exp_
     import mcp_servers.blueteam_server as bt
-    import mcp_servers.parrot_server as par
+    import mcp_servers.engagement_server as eng
+    import mcp_servers.exploit_server as exp_
     import mcp_servers.osint_server as osi
+    import mcp_servers.parrot_server as par
+    import mcp_servers.recon_server as recon
 
     names = {eng.mcp.name, recon.mcp.name, exp_.mcp.name,
              bt.mcp.name, par.mcp.name, osi.mcp.name}

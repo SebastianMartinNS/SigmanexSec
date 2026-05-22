@@ -10,7 +10,13 @@ from __future__ import annotations
 
 import pytest
 
-from core.di import DIError, ScopedContainer, ServiceContainer, current_container, set_current_container
+from core.di import (
+    DIError,
+    ScopedContainer,
+    ServiceContainer,
+    current_container,
+    set_current_container,
+)
 
 
 class _A:

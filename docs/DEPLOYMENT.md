@@ -149,38 +149,62 @@ Both can be enabled simultaneously. Failures in the sink path are
 logged but **never** block the local append (we never silently drop an
 audit record).
 
-## 6. Containerised deployment (v3.0 preview)
+## 6. Containerised deployment (v3.0)
 
-Phase 4 of the roadmap ships per-service OCI images and a Helm chart.
-Today's reference compose layout (subject to change with v3.0) will be:
+v3.0 ships a parametrised OCI image
+[`deploy/podman/Containerfile.service`](../deploy/podman/Containerfile.service)
+that builds the orchestrator **and** the six MCP servers from a single
+Containerfile via `--build-arg SAP_SERVICE=...`. The dashboard keeps its
+own image at [`deploy/podman/Containerfile.dashboard`](../deploy/podman/Containerfile.dashboard)
+(unchanged since v2.3).
 
-```yaml
-services:
-  dashboard:
-    image: ghcr.io/sap-pentest/dashboard:vX.Y.Z
-    ports: ["127.0.0.1:8765:8765"]
-    environment:
-      SAP_DASHBOARD_USER: ${SAP_DASHBOARD_USER}
-      SAP_DASHBOARD_PASS: ${SAP_DASHBOARD_PASS}
-    volumes:
-      - sap-sessions:/var/lib/sap/sessions
-      - sap-logs:/var/log/sap
-  llm:
-    image: ghcr.io/sap-pentest/llama:vX.Y.Z
-    deploy:
-      resources:
-        reservations:
-          devices: [{ driver: nvidia, capabilities: [gpu] }]
-  mcp-recon: { image: ghcr.io/sap-pentest/mcp-recon:vX.Y.Z, depends_on: [dashboard] }
-  mcp-exploit: { image: ghcr.io/sap-pentest/mcp-exploit:vX.Y.Z, depends_on: [dashboard] }
-  # ... blueteam, parrot, osint, engagement
-volumes:
-  sap-sessions: {}
-  sap-logs: {}
+Build every image locally:
+
+```bash
+podman build --build-arg SAP_SERVICE=orchestrator \
+    -t ghcr.io/sigmanexsec/sap-pentest-orchestrator:v3.0.0 \
+    -f deploy/podman/Containerfile.service .
+
+for s in recon exploit blueteam parrot engagement osint; do
+    podman build --build-arg SAP_SERVICE=mcp-$s \
+        -t ghcr.io/sigmanexsec/sap-pentest-mcp-$s:v3.0.0 \
+        -f deploy/podman/Containerfile.service .
+done
+
+podman build -t ghcr.io/sigmanexsec/sap-pentest-dashboard:v3.0.0 \
+    -f deploy/podman/Containerfile.dashboard .
 ```
 
-Until the v3.0 images are published you can build them locally with
-`bash deploy/oci/build_all.sh` (script ships in v2.4+).
+The published reference compose stack lives at
+[`deploy/compose/docker-compose.yml`](../deploy/compose/docker-compose.yml).
+Quick bring-up:
+
+```bash
+cp deploy/compose/.env.example .env
+$EDITOR .env                       # set ANTHROPIC_API_KEY +
+                                   # CREDENTIAL_ENCRYPTION_PASSPHRASE
+docker compose -f deploy/compose/docker-compose.yml up -d
+docker compose -f deploy/compose/docker-compose.yml logs -f orchestrator
+```
+
+Verify provenance before the first pull:
+
+```bash
+cosign verify \
+    --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp 'https://github.com/SigmanexSec/.*' \
+    ghcr.io/sigmanexsec/sap-pentest-orchestrator:v3.0.0
+```
+
+The compose stack also wires a local Prometheus instance scraping
+`/metrics` and an opt-in OTel collector profile (`docker compose ...
+--profile tracing up -d`). See
+[`deploy/compose/prometheus.yml`](../deploy/compose/prometheus.yml)
+and [`deploy/compose/otel-collector.yml`](../deploy/compose/otel-collector.yml).
+
+Helm chart is deferred to v3.1 to keep the v3.0 maintenance surface
+tight; in the meantime the same docker-compose can be translated to a
+`kustomize` overlay if you need a Kubernetes deploy.
 
 ## 7. Backup and disaster recovery
 

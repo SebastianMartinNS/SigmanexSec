@@ -64,7 +64,7 @@ class BaseMCPServer:
         audit: AuditLog,
         executor: ToolExecutor,
         output_store: ToolOutputStore | None = None,
-        mcp: "FastMCP | None" = None,
+        mcp: FastMCP | None = None,
         container: ServiceContainer | None = None,
     ) -> None:
         self.name = name
@@ -86,7 +86,7 @@ class BaseMCPServer:
         name: str,
         mcp_title: str | None = None,
         container: ServiceContainer | None = None,
-    ) -> "BaseMCPServer":
+    ) -> BaseMCPServer:
         """Resolve every collaborator from the DI container when present.
 
         ``mcp_title`` is the FastMCP server name; defaults to

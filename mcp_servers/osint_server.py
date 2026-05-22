@@ -40,15 +40,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from mcp.server.fastmcp import FastMCP
 
-from core.audit_log import AuditLog
-from core.executor import SecurityError, ToolExecutor
+from core.executor import SecurityError
 from core.models import Engagement, Phase
 from core.scope_validator import IdentityKind, ScopeValidator, ScopeViolation
-from core.session_store import SessionStore
-from core.tool_output_store import get_tool_output_store
-from mcp_servers._response import register_resource_handlers, register_run_context_tool
 
 # ── Singletons ───────────────────────────────────────────────────────────────
 # v3.1 W1.4 — shared AuditLog/SessionStore/ToolExecutor via DI container.

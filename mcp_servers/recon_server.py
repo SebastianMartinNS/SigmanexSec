@@ -9,7 +9,6 @@ Every tool is executed via ToolExecutor (scope checked, audited, timeout-guarded
 Output is returned as a structured dict so the LLM can reason about it.
 """
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -24,13 +23,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from mcp.server.fastmcp import FastMCP
 
-from core.audit_log import AuditLog
-from core.executor import ToolExecutor
 from core.models import Phase
 from core.scope_validator import ScopeValidator
-from core.session_store import SessionStore
 
 # ── Singletons ───────────────────────────────────────────────────────────────
 # v3.1 W1.4 — Bootstrap via BaseMCPServer. The DI container shares one
@@ -44,7 +39,6 @@ store  = _srv.store
 audit  = _srv.audit
 _exe   = _srv.executor          # scope_validator set per call by callers
 mcp    = _srv.mcp
-from core.tool_output_store import get_tool_output_store  # noqa: E402  (kept for tests that import it)
 from mcp_servers._response import _hard_cap_bytes  # noqa: F401  (re-exported)
 
 _srv.install_default_handlers()

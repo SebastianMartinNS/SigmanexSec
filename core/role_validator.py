@@ -47,7 +47,7 @@ class RoleValidator:
     mutates the catalog at runtime.
     """
 
-    def __init__(self, registry: "RoleRegistry") -> None:
+    def __init__(self, registry: RoleRegistry) -> None:
         self._registry = registry
 
     # ------------------------------------------------------------------
@@ -123,11 +123,11 @@ class RoleValidator:
     # Helpers
     # ------------------------------------------------------------------
 
-    def role(self, role_id: str) -> "Role | None":
+    def role(self, role_id: str) -> Role | None:
         """Public read-only access to the underlying catalog."""
         return self._registry.get(role_id)
 
-    def _role(self, role_id: str) -> "Role":
+    def _role(self, role_id: str) -> Role:
         role = self._registry.get(role_id)
         if role is None:
             raise RoleViolation(f"unknown role {role_id!r}")

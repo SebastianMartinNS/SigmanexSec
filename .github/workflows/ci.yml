@@ -159,7 +159,20 @@ jobs:
       - name: Install pip-audit
         run: pip install 'pip-audit>=2.7.0'
       - name: Audit hash-locked dependencies
-        run: pip-audit --strict --requirement requirements.lock
+        # PYSEC-2026-161 (GHSA-86qp-5c8j-p5mr) — starlette 0.52.1 host-header
+        # reconstruction issue. Fix in starlette 1.0.1; we pin <1.0 because
+        # Starlette 1.0 introduces a breaking change in the template LRU
+        # cache that needs a coordinated rewrite of the dashboard jinja
+        # templates (see pyproject.toml). Mitigations in place:
+        #   * production reverse-proxy validates Host header before
+        #     forwarding (deploy/podman/Containerfile.dashboard binds to
+        #     127.0.0.1 only; nginx/Caddy/Cloudflare Tunnel sit in front)
+        #   * RBAC uses the signed session cookie + require_role(...),
+        #     not the reconstructed URL path
+        #   * SSO callback path-equality check, not URL prefix
+        # Tracked for fix in v3.1 (template cache rewrite is on the
+        # consolidation backlog).
+        run: pip-audit --strict --requirement requirements.lock --ignore-vuln PYSEC-2026-161
 
   # ── Test suite ───────────────────────────────────────────────────────────
   # Full pytest with coverage. The coverage gate is set to 0 initially so a

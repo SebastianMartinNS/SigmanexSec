@@ -97,7 +97,50 @@ Components:
   BLAKE2b-256 hash chain. `verify_audit_chain()` re-walks any chain
   segment offline. Rotates at `SAP_AUDIT_MAX_FILE_MB` (default
   256 MiB). Optional external sinks (`core/audit_sink.py`): syslog
-  (UDP/TCP/TLS) and append-only file mirror.
+  (UDP/TCP/TLS) and append-only file mirror. **v3.0**: every MCP
+  server now shares one ``AuditLog`` instance through the DI
+  container, so the BLAKE2b chain is single-rooted across servers
+  (forensic integrity restored).
+
+The following are **v3.0 additions** that compose on top of the
+above without replacing any chokepoint:
+
+* **LLM provider Strategy** — `agent/providers/`. `LLMProvider`
+  Protocol with concrete adapters for Anthropic and every
+  OpenAI-compatible backend (cloud OpenAI, llama.cpp, LM Studio,
+  Ollama `/v1`, vLLM). `agent/providers/factory.py:get_provider()`
+  reads `LLM_PROVIDER` and returns the right adapter; the
+  `Orchestrator` exposes the result on `self._provider`.
+* **AgenticLoop driver** — `agent/loop/agentic_loop.py`. Single
+  provider-neutral ReAct loop that collapses the legacy
+  `_run_anthropic` / `_run_openai` paths. Gated by
+  `SAP_V3_PROVIDER_ABSTRACT` (default OFF in v3.1; flip planned for
+  v3.2 after soak).
+* **Cognitive tracking** — `core/tracking/`, `agent/tracking/`,
+  `core/audit_events.py`. Eight new versioned action types
+  (`llm_prompt_sent`, `llm_response_received`, `llm_reasoning`,
+  `agent_step`, `role_handoff`, `phase_transition`,
+  `reflection_completed`, `state_transition`) feed the existing
+  BLAKE2b chain. Sensitive payloads are Fernet-wrapped at rest via
+  `core/tracking/encrypted_sink.py`. Gated by
+  `SAP_V3_TRACKING_V2` (default OFF — NullRecorder when off).
+* **Observability** — `core/observability/{metrics,tracing}.py`.
+  Prometheus counters/histograms/gauges exposed at `/metrics` (no-op
+  if `prometheus_client` not installed); OpenTelemetry tracer (no-op
+  unless `SAP_OTEL_ENDPOINT` is set).
+* **Multi-agent team** — `agent/coordinator.py`,
+  `agent/coordination/handoff.py`, `agent/state/machine.py`. Six
+  YAML-editable role personas in `agent/roles/*.yaml` (Planner,
+  Reconnaissance Analyst, Exploit Developer, Post-Exploitation
+  Operator, Blue Team Observer, Reporter); `core/role_validator.py`
+  is the new role-aware chokepoint that **composes on top of**
+  `scope_validator` without duplicating it. Gated by
+  `SAP_AGENT_MODE` (default `single`; flip to default `multi`
+  planned for v3.2).
+* **DI container** — `core/di/container.py`. ~250 LOC custom
+  `ServiceContainer` (no external dependency). Singleton sharing of
+  `AuditLog`, `SessionStore`, `ToolExecutor` across the
+  orchestrator and the six MCP servers.
 
 ## 3. Request data flow
 
@@ -196,20 +239,42 @@ The most operationally important knobs:
 | `SAP_LOG_FORMAT` | `json` (CI / container) / `console` (TTY). | auto-detect |
 | `SAP_LOG_ROTATE_SIZE_MB` / `SAP_LOG_ROTATE_AGE_DAYS` / `SAP_LOG_ROTATE_KEEP` | Operational log rotation thresholds. | 100 / 14 / 14 |
 | `SAP_SUDO_BROKER_ENABLED` | Whether `/readyz` waits on the sudo socket. | unset (skipped) |
-| `SAP_TELEMETRY` (v3.0+) | Prometheus / OTEL exporters. | `off` |
+| `SAP_METRICS_ENABLED` (v3.0+) | Mount `/metrics` Prometheus exposition on the dashboard. No-op when `prometheus_client` is not installed. | `1` |
+| `SAP_OTEL_ENDPOINT` (v3.0+) | OTLP/gRPC endpoint for OpenTelemetry tracer. Empty → tracer is a no-op. | unset |
+| `SAP_V3_TRACKING_V2` (v3.0+) | Enables the cognitive-tracking recorder (LLM prompt/response/reasoning + agent_step events in the BLAKE2b chain). | `0` |
+| `SAP_AUDIT_ENCRYPT` (v3.0+) | Fernet-wrap the sensitive `details` fields (prompt, response, reasoning, reflection) at rest. Key derives from `CREDENTIAL_ENCRYPTION_PASSPHRASE` unless `SAP_AUDIT_FERNET_KEY` overrides. | `1` |
+| `SAP_AGENT_MODE` (v3.0+) | `single` (legacy monolithic agent) or `multi` (Coordinator orchestrates the six role personas). | `single` |
+| `SAP_V3_PROVIDER_ABSTRACT` (v3.1+) | Switch the main loop to `AgenticLoop` instead of `_run_anthropic` / `_run_openai`. Default OFF in v3.1, planned default ON in v3.2 after soak. | `0` |
+| `SAP_REFLECTION_MODE` (v3.0+) | `sync` / `async` / `off` reflection step after each tool result (multi-agent mode). | `off` |
 
-The full env reference lives in `.env.example`.
+The full env reference lives in `.env.example` and the migration walkthrough is
+[`migration_v2.3_to_v3.0.md`](migration_v2.3_to_v3.0.md).
 
-## 6. Roadmap pointers (the v3.0 cycle)
+## 6. Roadmap pointers
 
-This document describes the v2.1/v2.2 architecture; planned changes per
-the [12-week roadmap](../PLAN.md) (private to maintainers — referenced
-here for context only):
+Released cycles (cf. [`../CHANGELOG.md`](../CHANGELOG.md)):
 
-* **v2.3** — `core/sandbox.py` (bwrap), Argon2id at-rest creds, RBAC
+* **v2.3** ✅ — `core/sandbox.py` (bwrap), Argon2id at-rest creds, RBAC
   enforced on every route, OIDC/SAML connectors, cosign-signed releases.
-* **v2.4** — LLM provider abstraction (`agent/providers/`), MCP plugin
-  loader (`core/plugins/`), JSON-Schema playbooks, multi-tenant
-  isolation in audit + sessions, reproducibility manifest.
-* **v3.0** — OCI containers per service, docker-compose + Helm chart,
-  Prometheus `/metrics` + OTEL spans, public registry release.
+* **v3.0** ✅ — Cognitive architecture: tracking compliance-grade (8 new
+  versioned audit action types + Fernet at-rest), SOLID refactor (LLM
+  provider Strategy, AgenticLoop, DI container, `BaseMCPServer`),
+  multi-agent team (six YAML-editable roles, `RoleValidator` chokepoint,
+  state machine, Coordinator), OCI containers + docker-compose stack,
+  Prometheus `/metrics` + OTLP tracer.
+
+Current cycle:
+
+* **v3.1** (in progress) — Consolidation phase. No new features.
+  Wires v3.0 foundation into the production path (six MCP servers
+  share one `AuditLog` via the DI container; orchestrator carries
+  `self._provider`; pytest markers `requires_dep` / `requires_binary` /
+  `requires_network` land), test fragility cleanup, mypy/coverage
+  ratchet, doc alignment.
+
+Future cycles:
+
+* **v3.2** — Flag flip `SAP_V3_PROVIDER_ABSTRACT=1` default after the
+  90-day soak; legacy `_run_anthropic` / `_run_openai` deprecated.
+  Default `SAP_AGENT_MODE=multi`. Helm chart.
+* **v3.3** — Remove deprecated legacy loops.

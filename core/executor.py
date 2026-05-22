@@ -581,7 +581,7 @@ class ToolExecutor:
     # v3.0 typed entrypoint
     # ------------------------------------------------------------------
 
-    async def run_request(self, req: "ToolCallRequest") -> ExecutionResult:
+    async def run_request(self, req: ToolCallRequest) -> ExecutionResult:
         """Typed companion to :meth:`run`.
 
         Accepts a :class:`core.executor_types.ToolCallRequest` and delegates

@@ -15,7 +15,6 @@ expose first-class tools with deeper output parsing.
 """
 import asyncio
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -24,10 +23,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from mcp.server.fastmcp import FastMCP
 
-from core.audit_log import AuditLog
-from core.executor import SecurityError, ToolExecutor
+from core.executor import SecurityError
 from core.interactive_session import (
     SessionError,
     SessionLimitReached,
@@ -50,13 +47,10 @@ from core.parrot_catalog import (
     response_profile_for,
 )
 from core.scope_validator import IdentityKind, ScopeValidator, ScopeViolation
-from core.session_store import SessionStore
 from core.sudo_vault import SudoLocked
 from core.tool_output_store import get_tool_output_store
 from mcp_servers._response import (
     build_tool_response,
-    register_resource_handlers,
-    register_run_context_tool,
 )
 
 # ── Singletons ───────────────────────────────────────────────────────────────

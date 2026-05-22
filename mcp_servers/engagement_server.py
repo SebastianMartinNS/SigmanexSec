@@ -8,7 +8,6 @@ This server manages the entire lifecycle of a security assessment engagement:
   - store findings, hosts, credentials
   - retrieve session state (hosts found, findings so far)
 """
-import os
 import sys
 from pathlib import Path
 
@@ -19,9 +18,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from mcp.server.fastmcp import FastMCP
 
-from core.audit_log import AuditLog
 from core.models import (
     AuditEntry,
     Credential,
@@ -35,7 +32,6 @@ from core.models import (
     Service,
     Severity,
 )
-from core.session_store import SessionStore
 
 # ── Singletons ───────────────────────────────────────────────────────────────
 # v3.1 W1.4 — Bootstrap via BaseMCPServer so every MCP server in the process

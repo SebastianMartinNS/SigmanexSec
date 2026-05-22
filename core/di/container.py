@@ -73,7 +73,7 @@ class _Registration:
         self.wants_container = wants_container
         self._instance: Any = None
 
-    def materialize(self, container: "ServiceContainer") -> Any:
+    def materialize(self, container: ServiceContainer) -> Any:
         if self.singleton and self._instance is not None:
             return self._instance
         instance = (
@@ -196,7 +196,7 @@ class ServiceContainer:
     # ------------------------------------------------------------------
 
     @contextlib.contextmanager
-    def scope(self) -> Iterator["ScopedContainer"]:
+    def scope(self) -> Iterator[ScopedContainer]:
         """Open a per-run scope that inherits the parent's bindings.
 
         Registrations made on the scoped container are visible only inside
@@ -280,18 +280,33 @@ class ScopedContainer(ServiceContainer):
 # ----------------------------------------------------------------------
 # A ContextVar lets the scoped container be discovered by deep call stacks
 # (e.g. an MCP server tool that needs the same AuditLog as the orchestrator
-# without threading the container through every call). The default is a
-# fresh empty container — production bootstraps replace it via
+# without threading the container through every call). Default is None
+# and the first ``current_container()`` call materializes a fresh empty
+# container — production bootstraps replace it via
 # ``set_current_container`` in ``cli.py``.
+#
+# ``default=None`` (rather than ``default=ServiceContainer()``) avoids
+# the B039 lint about a mutable default shared across every ContextVar
+# token; lazy materialization gives every fresh asyncio task / thread
+# its own empty container if none was bound.
 
-_CURRENT_CONTAINER: ContextVar[ServiceContainer] = ContextVar(
-    "sap_di_current_container", default=ServiceContainer(),
+_CURRENT_CONTAINER: ContextVar[ServiceContainer | None] = ContextVar(
+    "sap_di_current_container", default=None,
 )
 
 
 def current_container() -> ServiceContainer:
-    """Return the active container for this context."""
-    return _CURRENT_CONTAINER.get()
+    """Return the active container for this context.
+
+    Lazy-materializes a fresh ``ServiceContainer`` when the ContextVar
+    is unbound; callers that want a populated container must call
+    :func:`set_current_container` at bootstrap time.
+    """
+    current = _CURRENT_CONTAINER.get()
+    if current is None:
+        current = ServiceContainer()
+        _CURRENT_CONTAINER.set(current)
+    return current
 
 
 def set_current_container(container: ServiceContainer) -> None:

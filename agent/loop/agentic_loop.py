@@ -27,7 +27,7 @@ from typing import Any
 
 from agent.loop.context import LoopContext
 from agent.providers.base import LLMProvider
-from agent.providers.types import ChatMessage, LLMResponse, ParsedToolCall, Role, StopReason
+from agent.providers.types import LLMResponse, ParsedToolCall, StopReason
 from agent.tracking.recorder import AgentStepRecorder, _NullRecorder
 
 _log = logging.getLogger(__name__)
@@ -110,9 +110,8 @@ class AgenticLoop:
         # post-call. ``include_payload=False`` because the *recorder*
         # decides whether to encrypt-then-store the raw payload. The loop
         # passes only the hash so audit volume stays bounded.
-        ph = ""
         if self._recorder is not None:
-            ph = await self._recorder.record_llm_prompt(
+            await self._recorder.record_llm_prompt(
                 messages=[m.model_dump() for m in ctx.messages],
                 system=ctx.system,
                 provider=self._provider.name,

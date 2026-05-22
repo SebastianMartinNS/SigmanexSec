@@ -9,7 +9,6 @@ the regression guard that gives confidence to flip
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import pytest
@@ -20,14 +19,10 @@ from agent.providers.factory import get_provider, list_providers
 from agent.providers.openai_provider import OpenAICompatibleProvider
 from agent.providers.types import (
     ChatMessage,
-    LLMResponse,
-    LLMUsage,
     ParsedToolCall,
     Role,
-    StopReason,
     ToolSpec,
 )
-
 
 # ── Anthropic SDK mocks (raw shape) ────────────────────────────────────────
 
