@@ -36,6 +36,7 @@ from core.approval_gate import ApprovalGate, AutoApproveGate
 from core.llm_io_sanitizer import sanitize_tool_output
 from core.memory import MemoryManager, builtin_tool_specs
 from core.memory.tools import dispatch_builtin_tool
+from core.models import Phase
 
 _MEMORY_ENABLED = os.environ.get("SAP_MEMORY_ENABLED", "1").lower() not in ("0", "false", "no", "off")
 
@@ -157,6 +158,40 @@ def _provider_abstract_enabled() -> bool:
     return os.environ.get("SAP_V3_PROVIDER_ABSTRACT", "0") not in (
         "", "0", "false", "False",
     )
+
+
+def _agent_mode() -> str:
+    """``SAP_AGENT_MODE`` resolver.
+
+    Returns ``"single"`` (default) or ``"multi"``. Any other value
+    falls back to ``"single"`` so a typo in operator configuration
+    cannot accidentally activate the multi-agent path. The flip to
+    default ``"multi"`` is planned for v3.2 after the soak window.
+    """
+    val = (os.environ.get("SAP_AGENT_MODE", "single") or "").strip().lower()
+    return "multi" if val == "multi" else "single"
+
+
+_REFLECTION_PROMPT_CACHE: str | None = None
+
+
+def _load_reflection_prompt() -> str | None:
+    """Lazy-load ``agent/prompts/roles/reflection.md`` once per process.
+
+    Returns ``None`` when the file is missing so the AgenticLoop skips
+    the reflection step entirely (the v3.1 default behaviour).
+    """
+    global _REFLECTION_PROMPT_CACHE
+    if _REFLECTION_PROMPT_CACHE is not None:
+        return _REFLECTION_PROMPT_CACHE
+    path = PROMPTS_DIR / "roles" / "reflection.md"
+    if not path.is_file():
+        return None
+    try:
+        _REFLECTION_PROMPT_CACHE = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return _REFLECTION_PROMPT_CACHE
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -720,6 +755,92 @@ class Orchestrator:
             self._on_message("error", f"autoreport failed: {exc}")
         return result
 
+    async def _dispatch_tool_for_role(
+        self,
+        name: str,
+        args: dict,
+        tool_call_id: str,
+        *,
+        role: str | None = None,
+        phase: Phase | None = None,
+    ) -> str:
+        """v3.1 W1.5 — Role-aware dispatch.
+
+        Composes the role-validator chokepoint on top of :meth:`_dispatch_tool`
+        without duplicating the scope chokepoint that lives inside the MCP
+        servers. When ``role`` is None or the legacy single-agent sentinel
+        ``"legacy_monolithic"``, the validator is bypassed and the call
+        behaves exactly like ``_dispatch_tool`` did in v3.0 — backward
+        compatibility for the default ``SAP_AGENT_MODE=single`` path.
+
+        When a real role id is bound (multi-agent path, W1.6), the
+        validator enforces:
+          * ``allowed_tools`` / ``denied_tools`` glob match for the tool
+          * ``allowed_phases`` membership for the current PTES phase
+
+        On violation the function does NOT raise: it returns a structured
+        ``{"role_denied": true, ...}`` JSON tool-result so the agent can
+        observe the denial and recover (e.g. hand off to another role).
+        The denial is also surfaced on the message bus for the dashboard.
+        """
+        if not role or role == "legacy_monolithic":
+            return await self._dispatch_tool(name, args, tool_call_id)
+
+        # Builtin memory tools (read_core_memory etc.) sit inside the
+        # agent itself, never reach an MCP server, and are universally
+        # allowed regardless of role. Mirror the carve-out in
+        # ``_dispatch_tool`` so a role can always touch its own scratch
+        # memory without being denied.
+        if _MEMORY_ENABLED and self._memory is not None and self._registry.is_builtin(name):
+            return await self._dispatch_tool(name, args, tool_call_id)
+
+        try:
+            from core.role_validator import RoleViolation, get_role_validator
+            validator = get_role_validator()
+        except Exception:
+            # Registry / catalog unavailable in this environment — fall
+            # back to the legacy path so the run is not bricked.
+            return await self._dispatch_tool(name, args, tool_call_id)
+
+        if validator is None:
+            return await self._dispatch_tool(name, args, tool_call_id)
+
+        try:
+            validator.assert_tool_allowed(role, name)
+            if phase is not None:
+                validator.assert_phase_allowed(role, phase)
+        except RoleViolation as exc:
+            self._on_message("decision", f"role_denied: {role} -> {name}: {exc}")
+            # Audit the denial through the existing scope-violation
+            # event type with a typed ``violation_type=role`` field so
+            # dashboards keep a single timeline.
+            if self._audit_log is not None and self._engagement_id:
+                try:
+                    from core.models import AuditEntry as _AuditEntry
+                    await self._audit_log.write(_AuditEntry(
+                        engagement_id=self._engagement_id,
+                        actor=role,
+                        action="scope_violation",
+                        target=name,
+                        details={
+                            "violation_type": "role",
+                            "tool": name,
+                            "role": role,
+                            "reason": str(exc),
+                            "call_id": tool_call_id,
+                        },
+                    ))
+                except Exception:  # pragma: no cover - audit must not crash dispatch
+                    pass
+            return json.dumps({
+                "role_denied": True,
+                "tool": name,
+                "role": role,
+                "reason": str(exc),
+            })
+
+        return await self._dispatch_tool(name, args, tool_call_id)
+
     async def _maybe_autoreport(self, name: str, args: dict) -> None:
         """Trigger ``generate_assessment_report`` on phase/complete events.
 
@@ -819,13 +940,17 @@ class Orchestrator:
             f"then follow the PTES methodology."
         )
 
-        # v3.1 W1.1+W1.2 — When the flag is on, drive the run through the
-        # unified ``AgenticLoop`` (Milestone B2) and emit cognitive-tracking
-        # events into the BLAKE2b chain (Milestone A3 hooks). Default OFF in
-        # v3.1; planned default ON in v3.2 after the 90-day soak (see
-        # docs/migration_v2.3_to_v3.0.md). The legacy ``_run_anthropic`` /
-        # ``_run_openai`` paths are the safety net for that window.
-        if _provider_abstract_enabled():
+        # v3.1 W1.1+W1.2+W1.6 — When ``SAP_AGENT_MODE=multi`` is set,
+        # delegate to the Coordinator which orchestrates the six role
+        # personas in a PTES walk. Otherwise, when the provider-abstract
+        # flag is on, drive the run through the unified ``AgenticLoop``
+        # (Milestone B2). Otherwise fall back to the legacy
+        # ``_run_anthropic`` / ``_run_openai`` paths so v2.3 deployments
+        # see no behavioural change.
+        if _agent_mode() == "multi":
+            self._rebind_tracking(engagement_id)
+            final = await self._run_via_coordinator(user_message, max_iterations)
+        elif _provider_abstract_enabled():
             self._rebind_tracking(engagement_id)
             final = await self._run_via_agentic_loop(user_message, max_iterations)
         elif _PROVIDER == "anthropic":
@@ -943,7 +1068,17 @@ class Orchestrator:
             # continue to apply exactly as in the v2.3 loop. The audit
             # event is emitted by the loop's recorder hooks before /
             # after this returns.
-            return await self._dispatch_tool(tc.name, tc.args, tc.id)
+            #
+            # v3.1 W1.5 — When ``ctx.role`` is a real role (multi-agent
+            # mode), route through the role-aware dispatcher so the
+            # RoleValidator chokepoint denies tools the role is not
+            # allowed to invoke. When ``ctx.role`` is ``"legacy_monolithic"``
+            # the role check is a no-op and the legacy path is taken.
+            return await self._dispatch_tool_for_role(
+                tc.name, tc.args, tc.id,
+                role=ctx.role,
+                phase=ctx.phase,
+            )
 
         loop = AgenticLoop(
             provider=self._provider,
@@ -953,6 +1088,7 @@ class Orchestrator:
             on_message=self._on_message,
             request_timeout=_LLM_REQUEST_TIMEOUT,
             sanitize_for_audit=sanitize_tool_output,
+            reflection_prompt=_load_reflection_prompt(),  # W1.7
         )
 
         ctx = LoopContext(
@@ -968,6 +1104,169 @@ class Orchestrator:
         )
 
         return await loop.run(ctx)
+
+    # ── v3.1 W1.6 multi-agent driver ───────────────────────────────────────────
+
+    async def _run_via_coordinator(self, user_message: str, max_iter: int) -> str:
+        """Drive a multi-agent run through :class:`Coordinator`.
+
+        Gated by ``SAP_AGENT_MODE=multi`` (default ``single``). The
+        Coordinator schedules role-to-role handoffs along the PTES walk;
+        each role-scoped slice rides on a fresh :class:`AgenticLoop`
+        instance with the role's persona prompt as the system header,
+        the role's ``role_id`` propagated through the dispatcher so the
+        :class:`RoleValidator` chokepoint (W1.5) blocks out-of-policy
+        tools, and the recorder hooks emit one ``agent_step`` per ReAct
+        cycle.
+
+        v3.1 ships a **deterministic PTES walk** fallback: after each
+        role's slice we hand off to the next role in the canonical order
+        (planner → recon_analyst → exploit_dev → post_exploit_operator →
+        blueteam_observer → reporter). Dynamic handoff (LLM-decided via
+        a ``handoff_to_role`` builtin tool) is the v3.2 follow-up.
+        """
+        from agent.coordination.handoff import AgentContext, CompletedTask
+        from agent.coordinator import Coordinator
+        from agent.loop import AgenticLoop, LoopContext
+        from agent.providers.types import ChatMessage, ParsedToolCall, Role, ToolSpec
+        from agent.roles import get_registry
+        from core.models import Phase as _Phase
+
+        if self._provider is None:                              # pragma: no cover
+            raise RuntimeError("SAP_AGENT_MODE=multi requires a configured LLMProvider")
+
+        # Default PTES walk used when the role's own slice does not
+        # request a specific handoff. The map keys are role ids; values
+        # are ``(next_role, next_phase)`` tuples. Reporter terminates.
+        _PTES_FALLBACK: dict[str, tuple[str, _Phase]] = {
+            "planner":               ("recon_analyst",         _Phase.RECON),
+            "recon_analyst":         ("exploit_dev",            _Phase.EXPLOITATION),
+            "exploit_dev":           ("post_exploit_operator", _Phase.POST_EXPLOIT),
+            "post_exploit_operator": ("blueteam_observer",      _Phase.REPORTING),
+            "blueteam_observer":     ("reporter",               _Phase.REPORTING),
+            # ``reporter`` is intentionally absent → driver returns None
+        }
+
+        registry = get_registry()
+        # Reuse the cached reflection prompt; each role-loop honours
+        # ``SAP_REFLECTION_MODE`` exactly like the single-agent path.
+        reflection_prompt = _load_reflection_prompt()
+
+        # Cap per-role iterations so the Coordinator can make progress
+        # along the PTES walk even when an individual role gets stuck.
+        max_iter_per_role = max(3, max_iter // 6)
+
+        async def _role_driver(role_id: str, incoming: AgentContext | None) -> AgentContext | None:
+            role = registry.get(role_id)
+            if role is None:
+                # Unknown role — terminate so the audit captures the failure.
+                self._on_message("error", f"unknown role {role_id!r}; terminating run")
+                return None
+
+            try:
+                persona_path = Path(__file__).resolve().parents[1] / role.persona_prompt_path
+                persona = persona_path.read_text(encoding="utf-8") if persona_path.is_file() else ""
+            except OSError:
+                persona = ""
+            base_system = "\n\n".join(
+                s for s in (SYSTEM_PROMPT, persona, _mode_prompt(self._mode)) if s
+            )
+
+            # Tools visible to this role are filtered by the role's
+            # allowed_tools/denied_tools (the loop's neutral ToolSpec
+            # list). The RoleValidator still re-checks per-call inside
+            # the dispatcher (W1.5) so an evolving registry catches
+            # last-minute drift.
+            import fnmatch as _fnmatch
+            registry_tools = list(self._registry._tools)
+
+            def _role_can_use(tool_name: str) -> bool:
+                for pat in role.denied_tools:
+                    if _fnmatch.fnmatchcase(tool_name, pat):
+                        return False
+                if not role.allowed_tools:
+                    return False
+                return any(_fnmatch.fnmatchcase(tool_name, pat) for pat in role.allowed_tools)
+
+            tools = [
+                ToolSpec(
+                    name=t["name"],
+                    description=t.get("description", "") or "",
+                    parameters=t.get("input_schema") or {"type": "object", "properties": {}},
+                )
+                for t in registry_tools
+                if _role_can_use(t["name"])
+            ]
+
+            # Compose the role-scoped user message: original objective
+            # plus the incoming handoff context (if any).
+            user_block = user_message
+            if incoming is not None:
+                user_block = f"{user_message}\n\n{incoming.to_prompt_block()}"
+
+            phase = incoming.current_phase if incoming else _Phase.SCOPING
+
+            async def _dispatcher(tc: ParsedToolCall) -> str:
+                return await self._dispatch_tool_for_role(
+                    tc.name, tc.args, tc.id, role=role_id, phase=phase,
+                )
+
+            loop = AgenticLoop(
+                provider=self._provider,
+                dispatcher=_dispatcher,
+                recorder=self._tracking,
+                on_message=self._on_message,
+                request_timeout=_LLM_REQUEST_TIMEOUT,
+                sanitize_for_audit=sanitize_tool_output,
+                reflection_prompt=reflection_prompt,
+            )
+
+            ctx = LoopContext(
+                run_id=self._run_id,
+                engagement_id=self._engagement_id or "-",
+                role=role_id,
+                phase=phase,
+                system=base_system,
+                messages=[ChatMessage(role=Role.USER, content=user_block)],
+                tools=tools,
+                max_iterations=max_iter_per_role,
+                repetition_limit=_TOOL_LOOP_LIMIT,
+                capabilities_overrides={"model": _MODEL},
+            )
+
+            await loop.run(ctx)
+
+            # Apply the deterministic PTES fallback. Reporter (and any
+            # role missing from the map) terminates the engagement.
+            fallback = _PTES_FALLBACK.get(role_id)
+            if fallback is None:
+                return None
+            next_role, next_phase = fallback
+            return AgentContext(
+                engagement_id=self._engagement_id or "-",
+                run_id=self._run_id,
+                current_phase=next_phase,
+                parent_role=role_id,
+                target_role=next_role,
+                handoff_reason=f"PTES fallback walk: {role_id} → {next_role}",
+                completed_tasks=[CompletedTask(
+                    description=f"{role_id} slice complete",
+                    tool_calls_made=sum(ctx.tool_call_counts.values()),
+                )],
+            )
+
+        coord = Coordinator(
+            engagement_id=self._engagement_id or "-",
+            run_id=self._run_id,
+            driver=_role_driver,
+            recorder=self._tracking,
+            initial_role="planner",
+            initial_phase=_Phase.SCOPING,
+            max_handoffs=max(6, len(_PTES_FALLBACK) + 1),
+        )
+        terminal_role = await coord.run()
+        self._on_message("coordinator", f"engagement finished at role={terminal_role}")
+        return f"multi-agent engagement complete (terminal role={terminal_role})"
 
     # ── Anthropic loop ─────────────────────────────────────────────────────────
 

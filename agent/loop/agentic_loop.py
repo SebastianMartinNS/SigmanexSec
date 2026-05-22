@@ -27,7 +27,7 @@ from typing import Any
 
 from agent.loop.context import LoopContext
 from agent.providers.base import LLMProvider
-from agent.providers.types import LLMResponse, ParsedToolCall, StopReason
+from agent.providers.types import ChatMessage, LLMResponse, ParsedToolCall, Role, StopReason
 from agent.tracking.recorder import AgentStepRecorder, _NullRecorder
 
 _log = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ class AgenticLoop:
         on_message: Callable[[str, str], None] | None = None,
         request_timeout: float = 600.0,
         sanitize_for_audit: Callable[[str], str] | None = None,
+        reflection_prompt: str | None = None,
     ) -> None:
         self._provider = provider
         self._dispatcher = dispatcher
@@ -80,6 +81,14 @@ class AgenticLoop:
         self._on_message = on_message or (lambda role, text: None)
         self._timeout = request_timeout
         self._sanitize_for_audit = sanitize_for_audit or (lambda s: s)
+        # v3.1 W1.7 — optional reflection step. When ``reflection_prompt``
+        # is non-None AND the env switch ``SAP_REFLECTION_MODE`` is
+        # ``sync``, the loop fires one extra ``provider.chat`` per
+        # iteration that produced a tool call, using ``reflection_prompt``
+        # as the system message; the response text rides on the audit
+        # chain via ``recorder.record_reflection``. Default: None →
+        # reflection disabled → 100 % parity with v3.0 loop behaviour.
+        self._reflection_prompt = reflection_prompt
 
     # ------------------------------------------------------------------
     # Public driver
@@ -258,7 +267,77 @@ class AgenticLoop:
                 content=sanitized,
             ))
 
+        # v3.1 W1.7 — fire one reflection step after the tool batch
+        # has been observed. Gated by SAP_REFLECTION_MODE=sync + the
+        # reflection prompt being non-None. The call is wrapped in a
+        # try/except: a reflection failure must never block the loop.
+        await self._maybe_reflect(ctx, response)
+
         return IterationResult(outcome=IterationOutcome.CONTINUE)
+
+    # ------------------------------------------------------------------
+    # Reflection (W1.7)
+    # ------------------------------------------------------------------
+
+    async def _maybe_reflect(self, ctx: LoopContext, last_response: LLMResponse) -> None:
+        """Optional ReAct reflection step.
+
+        Skipped when ``SAP_REFLECTION_MODE`` is not ``sync`` (default
+        ``off``) or when no ``reflection_prompt`` was supplied at
+        construction time. When enabled, fires one extra
+        ``provider.chat`` with the reflection persona as the system
+        message and a short summary of the last assistant turn as the
+        user message; the resulting text rides on the audit chain via
+        ``recorder.record_reflection``.
+
+        The loop does NOT branch on the reflection output in v3.1.0 —
+        that is the v3.2 work item (act on ``next_move`` from the
+        reflection JSON for dynamic handoff). For now reflection is
+        forensic + dashboard signal only.
+        """
+        import os as _os
+        mode = (_os.environ.get("SAP_REFLECTION_MODE", "off") or "off").strip().lower()
+        if mode != "sync" or not self._reflection_prompt:
+            return
+        if not last_response.tool_calls:
+            # Nothing observable to reflect on.
+            return
+        # Compose a tiny user prompt describing the step just observed.
+        # We intentionally stay terse so the reflection token cost is a
+        # rounding error on top of the main turn.
+        step_summary = (
+            "Previous step:\n"
+            f"  text: {(last_response.text or '')[:200]}\n"
+            f"  tools_called: {[tc.name for tc in last_response.tool_calls]}\n"
+            f"  stop_reason: {last_response.stop_reason}\n"
+            "Reply with the strict JSON object described in the system prompt."
+        )
+        try:
+            reflection = await self._provider.chat(
+                system=self._reflection_prompt,
+                messages=[ChatMessage(role=Role.USER, content=step_summary)],
+                tools=[],
+                max_tokens=512,
+                temperature=0.0,
+                seed=42,
+                timeout=min(self._timeout, 30.0),
+                capabilities_overrides=ctx.capabilities_overrides,
+            )
+        except Exception as exc:  # pragma: no cover - reflection must never block
+            self._on_message("error", f"reflection step failed: {exc!r}")
+            return
+        text = (reflection.text or "").strip()
+        if not text:
+            return
+        if self._recorder is not None:
+            try:
+                await self._recorder.record_reflection(
+                    text, mode="sync", emit_event=True,
+                )
+            except Exception:  # pragma: no cover
+                pass
+        # Stash for any downstream consumer (dashboard, replay).
+        ctx.last_thinking = text
 
 
 # ----------------------------------------------------------------------
