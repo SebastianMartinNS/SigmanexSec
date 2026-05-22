@@ -325,6 +325,37 @@ class Orchestrator:
         # decision events (DecisionKind). Wiring is opt-in to keep the
         # default constructor signature stable for existing callers.
         self._audit_log = audit_log
+        # v3.0 cognitive tracking — gated by SAP_V3_TRACKING_V2 env, returns
+        # a NullRecorder by default so legacy callers see zero behavioural
+        # change. ``self._engagement_id`` is set later by the run() entry
+        # points; the recorder picks it up via :meth:`_rebind_tracking`.
+        from agent.tracking import AgentStepRecorder as _Rec
+        self._tracking = _Rec.get(
+            audit_log=audit_log,
+            run_id=self._run_id,
+            engagement_id="-",
+        )
+        # v3.1 W1.3 — LLM Provider Strategy. ``self._provider`` is the
+        # canonical handle to whatever cloud / local backend ``LLM_PROVIDER``
+        # selects, and is the path AgenticLoop (W1.1, gated behind
+        # ``SAP_V3_PROVIDER_ABSTRACT``) will consume in v3.2+. The legacy
+        # module-level ``_llm`` / ``_llm_oai`` globals at the top of this
+        # file stay in place as a safety net so the legacy
+        # ``_run_anthropic`` / ``_run_openai`` loops keep working unchanged
+        # — flipping the flag is the only way to exercise the new path.
+        # Provider construction is lazy on first use of the underlying SDK
+        # client, so this attribute is cheap to materialise even when the
+        # process never makes an LLM call (e.g. CLI utilities).
+        try:
+            from agent.providers import get_provider
+            self._provider = get_provider()
+        except Exception as _provider_exc:  # pragma: no cover - defensive
+            # Mirror the legacy behaviour of failing only at first use.
+            # ``Orchestrator()`` historically never crashed at construction
+            # even when the API key was missing, and CLI tools depend on
+            # that. Stash the exception so AgenticLoop can re-raise it.
+            self._provider = None
+            self._provider_init_error = _provider_exc
         # Adaptive runtime state — populated by _run_adaptive_classification
         # at the start of every run. Always present so phase-4 helpers can
         # short-circuit cheaply when the adaptive layer is disabled.
@@ -332,6 +363,22 @@ class Orchestrator:
         self._adaptive_playbook = None  # type: ignore[assignment]
         self._adaptive_scenario = None  # type: ignore[assignment]
         self._repetition_handler = None  # type: ignore[assignment]
+
+    def _rebind_tracking(self, engagement_id: str) -> None:
+        """Re-create the v3 recorder once the engagement id is known.
+
+        Called from :meth:`run` / :meth:`run_anthropic` entry points after
+        the orchestrator has resolved the active engagement. When tracking
+        is disabled this is a no-op (NullRecorder stays in place).
+        """
+        if not engagement_id:
+            return
+        from agent.tracking import AgentStepRecorder as _Rec
+        self._tracking = _Rec.get(
+            audit_log=self._audit_log,
+            run_id=self._run_id,
+            engagement_id=engagement_id,
+        )
 
     @staticmethod
     def _truncate_for_callback(text: str) -> str:
@@ -366,30 +413,11 @@ class Orchestrator:
 
     @staticmethod
     def _measure_prompt(messages: list, *, system_text: str = "", tools: list | None = None) -> int:
-        """Approximate total prompt tokens for the next LLM call.
-
-        Mirrors what the server tokenises: the system header, the message
-        history (Anthropic blocks + OpenAI dicts both honoured by
-        ``count_message_tokens`` after the 2026-04-30 patch) and the tool
-        schemas (their JSON serialisation is what the model actually sees).
-        """
-        try:
-            from core.memory.tokens import count_message_tokens, count_tokens
-        except Exception:
-            return 0
-        total = count_message_tokens(messages or [])
-        if system_text:
-            total += count_tokens(system_text)
-        if tools:
-            try:
-                total += count_tokens(json.dumps(tools, default=str))
-            except Exception:
-                # Fallback: walk and count names/descriptions.
-                for t in tools:
-                    if isinstance(t, dict):
-                        total += count_tokens(str(t.get("name", "")))
-                        total += count_tokens(str(t.get("description", "")))
-        return total
+        """Thin delegate to :func:`agent.budget.measure_prompt`. Kept on the
+        class for backward compat with legacy callers/tests that monkey-patch
+        ``Orchestrator._measure_prompt``."""
+        from agent.budget import measure_prompt
+        return measure_prompt(messages, system_text=system_text, tools=tools)
 
     def _prompt_budget_guard(
         self,
@@ -399,104 +427,32 @@ class Orchestrator:
         tools: list | None = None,
         iteration: int = 0,
     ) -> tuple[list, bool]:
-        """Pre-flight guard: enforce ``SAP_PROMPT_TOKEN_BUDGET``.
+        """Thin delegate to :func:`agent.budget.prompt_budget_guard`.
 
-        Returns ``(maybe_pruned_messages, is_overflow_unrecoverable)``.
-
-        Strategy when over budget:
-          1. Aggressive in-place truncation of the longest tool-result
-             content in ``messages`` (head+tail keeping shape), iterating
-             until under budget or no more candidates.
-          2. If still over budget: emit ``error`` event and return
-             overflow=True so the caller can abort the iteration.
-
-        Always emits a ``token_budget`` observability event when total
-        exceeds ``SAP_PROMPT_TOKEN_WARN`` (so dashboards show the trend
-        before the wall is hit).
+        The delegate hands the orchestrator's ``_on_message`` and
+        ``_truncate_for_callback`` to the pure-function implementation so
+        the observability events and the smart head+tail truncator keep
+        their existing behaviour.
         """
-        total = self._measure_prompt(messages, system_text=system_text, tools=tools)
-        if _PROMPT_TOKEN_WARN > 0 and total >= _PROMPT_TOKEN_WARN:
-            try:
-                self._on_message(
-                    "token_budget",
-                    f"iter={iteration} tokens={total}/{_PROMPT_TOKEN_BUDGET}",
-                )
-            except Exception:
-                pass
-        if total <= _PROMPT_TOKEN_BUDGET:
-            return messages, False
-
-        # Try to shrink: truncate the largest string content first.
-        pruned = list(messages)
-        max_passes = 8
-        cap = max(2048, _CALLBACK_RESULT_CAP)
-        for _pass in range(max_passes):
-            longest_idx, longest_len = -1, 0
-            for i, m in enumerate(pruned):
-                content = m.get("content") if isinstance(m, dict) else None
-                if isinstance(content, str):
-                    if len(content) > longest_len:
-                        longest_len, longest_idx = len(content), i
-                elif isinstance(content, list):
-                    # tool_results are typically lists of dicts with ``content`` text.
-                    for j, blk in enumerate(content):
-                        if isinstance(blk, dict):
-                            txt = blk.get("content") or blk.get("text")
-                            if isinstance(txt, str) and len(txt) > longest_len:
-                                longest_len, longest_idx = len(txt), (i, j)
-            if longest_idx == -1 or longest_len <= cap:
-                break
-            # Truncate the longest payload in place.
-            if isinstance(longest_idx, tuple):
-                i, j = longest_idx
-                blk = pruned[i]["content"][j]
-                key = "content" if "content" in blk else "text"
-                blk[key] = self._truncate_for_callback(blk[key])
-            else:
-                m = pruned[longest_idx]
-                # Replace with a copy to avoid mutating the original dict.
-                pruned[longest_idx] = {**m, "content": self._truncate_for_callback(m["content"])}
-            new_total = self._measure_prompt(pruned, system_text=system_text, tools=tools)
-            try:
-                self._on_message(
-                    "token_budget",
-                    f"iter={iteration} pruned tokens={new_total}/{_PROMPT_TOKEN_BUDGET}",
-                )
-            except Exception:
-                pass
-            if new_total <= _PROMPT_TOKEN_BUDGET:
-                return pruned, False
-            total = new_total
-        # Could not shrink under budget — overflow.
-        try:
-            self._on_message(
-                "error",
-                f"prompt budget overflow after pruning: {total}>{_PROMPT_TOKEN_BUDGET} "
-                f"at iter {iteration}; aborting to avoid HTTP 400 from llama-server.",
-            )
-        except Exception:
-            pass
-        return pruned, True
+        from agent.budget import prompt_budget_guard
+        return prompt_budget_guard(
+            messages,
+            system_text=system_text,
+            tools=tools,
+            iteration=iteration,
+            budget=_PROMPT_TOKEN_BUDGET,
+            warn_threshold=_PROMPT_TOKEN_WARN,
+            callback_result_cap=_CALLBACK_RESULT_CAP,
+            truncator=self._truncate_for_callback,
+            on_event=self._on_message,
+        )
 
     @staticmethod
     def _tool_call_signature(name: str, args: dict) -> str:
-        try:
-            payload = json.dumps(args, sort_keys=True, default=str)
-        except Exception:
-            payload = repr(args)
-        # sha1 is used here as a non-cryptographic content hash for the fuzzy
-        # repetition detector (RepetitionHandler); collision attacks are
-        # not in this code path's threat model. ``usedforsecurity=False``
-        # documents the intent and silences both ruff (S324) and bandit (B324).
-        return hashlib.sha1(  # noqa: S324
-            f"{name}|{payload}".encode(),
-            usedforsecurity=False,
-        ).hexdigest()
+        from agent.budget import tool_call_signature
+        return tool_call_signature(name, args)
 
-    # Keys whose CSV values should be tokenised individually so that
-    # ``severity="critical,high"`` and ``severity="critical,high,medium"``
-    # share most tokens (closes the Phase 3 loophole where the LLM
-    # appended one more level to bypass the breaker).
+    # Exposed for backward compat with legacy callers reading the constant.
     _CSV_TOKENISE_KEYS = frozenset({
         "severity", "tags", "templates", "ports", "levels", "extensions",
         "wordlists", "modules",
@@ -504,107 +460,29 @@ class Orchestrator:
 
     @staticmethod
     def _canonicalise_url(value: str) -> str:
-        """Reduce a URL to its host part (lowercase, no ``www.``).
-
-        Returns the original string when it does not look like an HTTP
-        URL or parsing fails. Only used by the fuzzy tokeniser, so a
-        best-effort match is fine — never raises.
-        """
-        if not isinstance(value, str):
-            return value
-        if not value[:8].lower().startswith(("http://", "https://")):
-            return value
-        try:
-            from urllib.parse import urlsplit
-            parts = urlsplit(value)
-            host = (parts.hostname or "").lower()
-            if host.startswith("www."):
-                host = host[4:]
-            return host or value
-        except Exception:
-            return value
+        from agent.budget import canonicalise_url
+        return canonicalise_url(value)
 
     @classmethod
     def _tool_call_token_set(cls, name: str, args: dict) -> frozenset[str]:
-        """Bag-of-tokens for fuzzy circuit-breaker matching.
-
-        Two normalisations make the breaker robust to common LLM
-        permutation tactics:
-
-        * URL-aware: ``http://x``, ``https://x``, ``https://www.x/`` all
-          collapse to the bare host so the agent can't dodge the breaker
-          by toggling scheme/www/trailing-slash.
-        * CSV-aware: known list-valued args (``severity`` etc.) split on
-          ``,`` so adding/removing a level bumps Jaccard, not signature.
-        """
-        out: set[str] = {f"@{name}"}
-        canon_args: dict = {}
-        try:
-            for key, val in (args or {}).items():
-                if isinstance(val, str):
-                    canon = cls._canonicalise_url(val)
-                    canon_args[key] = canon
-                    if key in cls._CSV_TOKENISE_KEYS and "," in canon:
-                        for piece in canon.split(","):
-                            piece = piece.strip()
-                            if piece:
-                                out.add(piece.lower())
-                    else:
-                        out.add(canon.lower()[:64])
-                elif isinstance(val, (list, tuple)):
-                    canon_args[key] = list(val)
-                    for item in val:
-                        if isinstance(item, str) and item:
-                            out.add(item.lower()[:64])
-                else:
-                    canon_args[key] = val
-        except Exception:
-            canon_args = args if isinstance(args, dict) else {}
-
-        # Fallback tokenisation over the *canonicalised* JSON payload —
-        # keeps prior behaviour for nested / unusual arg shapes without
-        # reintroducing raw URLs that were just normalised away.
-        try:
-            payload = json.dumps(canon_args, sort_keys=True, default=str)
-        except Exception:
-            payload = repr(canon_args)
-        import re as _re
-        for tok in _re.findall(r"[A-Za-z0-9_.:/\\-]+", payload):
-            if tok and len(tok) <= 64:
-                out.add(tok.lower())
-        return frozenset(out)
+        from agent.budget import tool_call_token_set
+        return tool_call_token_set(name, args)
 
     def _fuzzy_signature(self, name: str, args: dict, threshold: float = 0.85) -> str:
         """Resolve ``(name, args)`` to a canonical signature.
 
-        Returns the SHA1 signature of the *closest* prior call whose
-        Jaccard similarity is ≥ ``threshold``. If no prior call is
-        similar enough, returns the exact SHA1 signature and registers
-        it in the lookup table for future calls.
+        Backed by :class:`agent.budget.FuzzyBreaker`. A breaker instance
+        is lazy-created on the orchestrator the first time it is used so
+        callers that bypass ``__init__`` (e.g. tests) still work.
         """
-        if not hasattr(self, "_fuzzy_index"):
-            # ``list[(token_set, signature)]``; capped at 256 entries.
-            self._fuzzy_index: list[tuple[frozenset[str], str]] = []  # type: ignore[attr-defined]
-        new_tokens = self._tool_call_token_set(name, args)
-        sig = self._tool_call_signature(name, args)
-        # Search recent prior calls for a near-duplicate.
-        best: tuple[float, str] | None = None
-        for tokens, prior_sig in self._fuzzy_index[-256:]:
-            if not tokens or not new_tokens:
-                continue
-            inter = len(tokens & new_tokens)
-            if not inter:
-                continue
-            union = len(tokens | new_tokens)
-            jaccard = inter / union if union else 0.0
-            if jaccard >= threshold and (best is None or jaccard > best[0]):
-                best = (jaccard, prior_sig)
-        chosen = best[1] if best is not None else sig
-        self._fuzzy_index.append((new_tokens, chosen))
-        # Cap memory.
-        if len(self._fuzzy_index) > 512:
-            self._fuzzy_index = self._fuzzy_index[-256:]
-        return chosen
+        from agent.budget import FuzzyBreaker
+        breaker = getattr(self, "_breaker", None)
+        if breaker is None or breaker._threshold != threshold:  # noqa: SLF001
+            # Threshold can vary across the call site; keep a per-instance
+            # breaker that matches the *current* threshold.
+            self._breaker = FuzzyBreaker(threshold=threshold)
+            breaker = self._breaker
+        return breaker.signature(name, args)
 
 
     async def _emit_repetition_decision(self, tool_name: str, args: dict, summary: str) -> None:

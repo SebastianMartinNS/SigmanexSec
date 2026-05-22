@@ -33,23 +33,21 @@ from core.scope_validator import ScopeValidator
 from core.session_store import SessionStore
 
 # ── Singletons ───────────────────────────────────────────────────────────────
-_db_path  = os.environ.get("SESSION_DB_PATH", "./sessions/assessments.db")
-_log_path = os.environ.get("AUDIT_LOG_PATH",  "./logs/audit.jsonl")
+# v3.1 W1.4 — Bootstrap via BaseMCPServer. The DI container shares one
+# ``AuditLog`` / ``SessionStore`` / ``ToolExecutor`` instance across every
+# MCP server in the process so the BLAKE2b hash chain stays single-rooted
+# (forensic integrity). Legacy env-var resolution preserved.
+from mcp_servers.base import BaseMCPServer
 
-store  = SessionStore(_db_path)
-audit  = AuditLog(_log_path)
-_exe   = ToolExecutor(audit_log=audit)   # scope_validator set per call
+_srv   = BaseMCPServer.from_env(name="recon")
+store  = _srv.store
+audit  = _srv.audit
+_exe   = _srv.executor          # scope_validator set per call by callers
+mcp    = _srv.mcp
+from core.tool_output_store import get_tool_output_store  # noqa: E402  (kept for tests that import it)
+from mcp_servers._response import _hard_cap_bytes  # noqa: F401  (re-exported)
 
-mcp = FastMCP("pentest-recon")
-from core.tool_output_store import get_tool_output_store
-from mcp_servers._response import (
-    _hard_cap_bytes,
-    register_resource_handlers,
-    register_run_context_tool,
-)
-
-register_resource_handlers(mcp, get_tool_output_store, server_suffix="recon")
-register_run_context_tool(mcp, _exe, server_suffix="recon")
+_srv.install_default_handlers()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sap-pentest"
-version = "2.2.0.dev0"
+version = "3.0.0.dev0"
 description = "Sigmanex SAP-Pentest — agentic penetration testing platform with scope-locked tools, BLAKE2b-chained audit, and pluggable LLM backends."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Sebastian Martin", email = "adriansebastianmartin@gmail.com" },
+    { name = "rootedlab-code", email = "rootedlab@proton.me" },
 ]
 maintainers = [
     { name = "Sigmanex", email = "info@sigmanex.net" },
@@ -194,6 +194,12 @@ markers = [
     "slow: tests that take more than ~2s",
     "live: live OSINT tests requiring real binaries + internet (gated by SAP_LIVE_OSINT=1)",
     "sandbox: real bwrap escape tests; require bwrap + user namespaces (CI runs them on the self-hosted runner)",
+    # v3.1 T2 — generic environment dependency markers. Each takes an
+    # argument and auto-skips the test (with a clear reason) when the
+    # requirement is not satisfied. Hook lives in ``tests/conftest.py``.
+    "requires_dep(name): skip when a Python import is missing (e.g. requires_dep('structlog'))",
+    "requires_binary(name): skip when a CLI binary is not on PATH (e.g. requires_binary('bwrap'))",
+    "requires_network: skip when offline (env SAP_TEST_OFFLINE=1)",
 ]
 
 # ── ruff ──────────────────────────────────────────────────────────────────────

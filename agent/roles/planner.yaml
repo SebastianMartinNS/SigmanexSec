@@ -1,0 +1,23 @@
+id: planner
+name: Planner
+persona_prompt_path: agent/prompts/roles/planner.md
+allowed_tools:
+  - list_engagements
+  - get_engagement
+  - get_targets
+  - get_findings_summary
+  - search_archival_memory
+  - read_core_memory
+  - write_core_memory
+  - propose_plan_step
+allowed_phases:
+  - scoping
+  - reconnaissance
+can_handoff_to:
+  - to: recon_analyst
+    when: when the plan needs concrete reconnaissance data
+  - to: blueteam_observer
+    when: when a defensive baseline is needed before offensive steps
+capability_guards:
+  requires_human_approval: false
+  max_tool_calls_per_step: 8

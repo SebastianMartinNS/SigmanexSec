@@ -1,0 +1,23 @@
+id: reporter
+name: Reporter
+persona_prompt_path: agent/prompts/roles/reporter.md
+allowed_tools:
+  - get_findings_summary
+  - list_findings
+  - get_finding
+  - search_archival_memory
+  - read_core_memory
+  - generate_assessment_report
+  - get_engagement
+  - get_targets
+denied_tools:
+  - "*scan*"
+  - "*exploit*"
+  - "*brute*"
+  - "*recon*"
+allowed_phases:
+  - reporting
+can_handoff_to: []
+capability_guards:
+  requires_human_approval: false
+  max_tool_calls_per_step: 4

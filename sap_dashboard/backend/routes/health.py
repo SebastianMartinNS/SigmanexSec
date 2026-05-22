@@ -31,7 +31,9 @@ from typing import Any
 
 import aiosqlite
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+
+from core.observability import get_metrics
 
 router = APIRouter(tags=["health"])
 
@@ -123,3 +125,12 @@ async def readyz() -> JSONResponse:
 
     payload = {"ready": ready, "checks": checks}
     return JSONResponse(payload, status_code=200 if ready else 503)
+
+
+@router.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus exposition. Returns ``# metrics disabled`` when the
+    optional ``prometheus_client`` extra is missing or
+    ``SAP_METRICS_ENABLED=0``."""
+    body, content_type = get_metrics().render()
+    return Response(content=body, media_type=content_type)

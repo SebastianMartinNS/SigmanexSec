@@ -199,7 +199,7 @@ reporter unless they request anonymity.
 ## 7. Maintenance
 
 This document is owned by the project maintainer
-(`adriansebastianmartin@gmail.com`) and reviewed at every major release
+(`rootedlab@proton.me`) and reviewed at every major release
 (v2.4, v3.0, etc.). Pull requests against this file are welcome —
 please include a CVD-style writeup of any new threat you would like to
 see modelled.

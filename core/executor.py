@@ -22,6 +22,7 @@ from pathlib import Path
 import yaml
 
 from core.approval_gate import ApprovalGate
+from core.executor_types import ToolCallRequest
 from core.models import AuditEntry, ExecutionResult, Phase, ToolOutputRefModel
 from core.sudo_vault import SudoLocked, SudoVault, get_sudo_vault
 from core.time_utils import utcnow as _sap_utcnow
@@ -575,6 +576,40 @@ class ToolExecutor:
             ))
 
         return result
+
+    # ------------------------------------------------------------------
+    # v3.0 typed entrypoint
+    # ------------------------------------------------------------------
+
+    async def run_request(self, req: "ToolCallRequest") -> ExecutionResult:
+        """Typed companion to :meth:`run`.
+
+        Accepts a :class:`core.executor_types.ToolCallRequest` and delegates
+        to :meth:`run` after enforcing the optional role-level capability
+        check (Milestone C wiring). The legacy ``run`` signature is left
+        untouched — every test in the 530-strong legacy suite still calls
+        ``run(tool, args, ...)`` directly.
+        """
+        # Role enforcement is composed on top of (not in place of) the
+        # scope chokepoint. When ``role_id`` is None the validator is
+        # bypassed entirely (single-agent legacy mode).
+        if req.role_id:
+            try:
+                from core.role_validator import (  # type: ignore[import-not-found]
+                    RoleValidator,
+                    get_role_validator,
+                )
+                validator: RoleValidator | None = get_role_validator()
+                if validator is not None:
+                    validator.assert_tool_allowed(req.role_id, req.tool)
+                    validator.assert_phase_allowed(req.role_id, req.phase)
+            except ImportError:
+                # RoleValidator lands in Milestone C. Until then, any
+                # caller that sets role_id is a forward-looking test
+                # and we let the request proceed under the existing
+                # scope checks.
+                pass
+        return await self.run(req.tool, list(req.args), **req.to_run_kwargs())
 
     # ------------------------------------------------------------------
     # Private helpers

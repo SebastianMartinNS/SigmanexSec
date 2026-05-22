@@ -30,8 +30,14 @@ from mcp.server.fastmcp import FastMCP
 from core.models import Severity
 from core.session_store import SessionStore
 
-store = SessionStore(os.environ.get("SESSION_DB_PATH", "./sessions/assessments.db"))
-mcp   = FastMCP("pentest-blueteam")
+# v3.1 W1.4 — shared SessionStore via DI container. Blueteam server does
+# not expose tool-execution (no ``audit``/``_exe``/run-context tool), so
+# we keep only the resource handler that v3.0 had.
+from mcp_servers.base import BaseMCPServer
+
+_srv  = BaseMCPServer.from_env(name="blueteam")
+store = _srv.store
+mcp   = _srv.mcp
 from core.time_utils import utcnow as _sap_utcnow
 from core.tool_output_store import get_tool_output_store
 from mcp_servers._response import register_resource_handlers

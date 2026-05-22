@@ -73,6 +73,16 @@ logs/*.gz
 *.tar
 *.sif
 
+# --- External tool binaries (downloaded at deploy time, never tracked) ---
+# Cosign is fetched by .github/workflows/release.yml at sign time;
+# the binary is large (~105 MB) and version-pinned in CI.
+cosign-linux-amd64
+cosign-linux-arm64
+cosign-darwin-*
+
+# --- Operator-personal launch scripts (not part of the public deploy) ---
+start_opencode_llm.sh
+
 # --- llama.cpp vendored submodule ---
 # The submodule itself is tracked via .gitmodules.
 # The local patched working copy on disk stays here, but build artefacts

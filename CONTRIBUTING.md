@@ -36,10 +36,31 @@ By participating you agree to abide by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md
 ```bash
 git clone <repo> sap-pentest && cd sap-pentest
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install pytest pytest-asyncio ruff bandit pip-audit
-cp .env.example .env        # adjust to your local LLM
+
+# Reproducible install (recommended for CI parity).
+pip install --require-hashes -r requirements.lock
+pip install -e '.[dev]'              # pytest, pytest-asyncio, pytest-cov,
+                                     # hypothesis, ruff, mypy, bandit,
+                                     # pip-audit, types-* — matches CI.
+
+# Or, lightweight + faster but not hash-pinned:
+#   pip install -e '.[dev,observability]'
+
+cp .env.example .env                  # adjust to your local LLM
 ```
+
+Sanity check the suite is green before opening a PR:
+
+```bash
+pytest tests/ -q                      # 0 collection errors, no skip without marker
+ruff check .                          # 0 errors
+```
+
+If a test is skipped because a binary or system extension is missing
+(e.g. `bwrap` for sandbox tests), the skip line carries a
+`requires_binary("…")` / `requires_network` marker so the reason is
+explicit — install the dependency or run with `-m "not requires_binary"`
+to suppress the noise.
 
 The `llama.cpp/` tree under the repository is a **patched fork**, not
 upstream. Read [`LLAMACPP_FORK.md`](LLAMACPP_FORK.md) before touching

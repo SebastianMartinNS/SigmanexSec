@@ -32,6 +32,12 @@ from typing import Final
 DEFAULT_MAX_BYTES: Final[int] = 200 * 1024
 
 
+# Default cap for audit-bound payloads. Higher than ``DEFAULT_MAX_BYTES``
+# because forensics need the original prompt as faithfully as possible —
+# only adversarial control sequences are stripped. Encryption at rest is
+# handled by :mod:`core.tracking.encrypted_sink`.
+DEFAULT_AUDIT_MAX_BYTES: Final[int] = 1 * 1024 * 1024  # 1 MiB
+
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # Patterns ordered by specificity. Replacement keeps prefix to aid debugging.
@@ -131,3 +137,46 @@ def sanitize_tool_output(
         f"{text}\n"
         f"<<<END_TOOL_OUTPUT>>>"
     )
+
+
+def sanitize_for_audit(text: str, *, max_bytes: int | None = None) -> str:
+    """Companion to :func:`sanitize_tool_output` for the v3.0 audit chain.
+
+    The LLM-bound sanitizer applies aggressive redactions to keep secrets out
+    of the model's context window. The *audit*-bound sanitizer keeps the
+    original prompt/response as-is so forensic replay is faithful — only
+    adversarial artefacts that would corrupt the JSONL line are stripped:
+
+    1. Unicode NFC normalization (no information loss; collapses confusables).
+    2. ASCII control characters stripped (``\\n \\r \\t`` preserved). These
+       would break the JSONL framing if left in.
+    3. Hard cap (default 1 MiB) to bound a single audit entry. Truncation is
+       annotated with ``[...truncated N bytes by SAP audit sanitizer...]``.
+
+    **No** secret redaction is applied here: the encrypted sink
+    (:mod:`core.tracking.encrypted_sink`) protects the payload at rest, and
+    auditors with the key need to see the *original* prompt. Pair this with
+    that sink to keep confidentiality + auditability.
+    """
+    if text is None:
+        text = ""
+    if not isinstance(text, str):
+        text = str(text)
+
+    text = unicodedata.normalize("NFC", text)
+    text = _CONTROL_RE.sub("", text)
+
+    cap = DEFAULT_AUDIT_MAX_BYTES if max_bytes is None else max_bytes
+    if cap and len(text.encode("utf-8", errors="replace")) > cap:
+        encoded = text.encode("utf-8", errors="replace")
+        head_len = int(cap * 0.75)
+        tail_len = cap - head_len - 64
+        head = encoded[:head_len].decode("utf-8", errors="replace")
+        tail = encoded[-tail_len:].decode("utf-8", errors="replace") if tail_len > 0 else ""
+        truncated_bytes = len(encoded) - head_len - max(tail_len, 0)
+        text = (
+            head
+            + f"\n[...truncated {truncated_bytes} bytes by SAP audit sanitizer...]\n"
+            + tail
+        )
+    return text

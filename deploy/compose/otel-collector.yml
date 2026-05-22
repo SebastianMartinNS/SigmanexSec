@@ -1,0 +1,32 @@
+# deploy/compose/otel-collector.yml — minimal OTLP collector config.
+#
+# Receives OTLP/gRPC on :4317 from every SAP-Pentest service and writes
+# spans to stdout (so ``docker compose logs otel-collector`` shows the
+# full trace tree). Add an ``otlp/jaeger`` or ``otlp/tempo`` exporter
+# here when you have a backend ready.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 25
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

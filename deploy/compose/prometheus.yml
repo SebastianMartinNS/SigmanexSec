@@ -1,0 +1,22 @@
+# deploy/compose/prometheus.yml — scrape config for the SAP-Pentest stack.
+#
+# The dashboard mounts ``/metrics``; the other services do not yet expose
+# an HTTP scrape endpoint (they emit through OTLP + the central audit
+# chain). When that lands in v3.1 this file picks them up via the
+# ``sap-services`` job.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    monitor: sap-pentest-local
+
+scrape_configs:
+  - job_name: sap-dashboard
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["dashboard:8765"]
+
+  - job_name: prometheus-self
+    static_configs:
+      - targets: ["localhost:9090"]

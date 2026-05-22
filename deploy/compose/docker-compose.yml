@@ -1,0 +1,156 @@
+# deploy/compose/docker-compose.yml — Reference stack for SAP-Pentest v3.0.
+#
+# Brings up the whole platform on a single host:
+#   - orchestrator (the agentic loop, stdio-only — no HTTP port)
+#   - 6 MCP servers (recon / exploit / blueteam / parrot / engagement / osint)
+#   - dashboard (FastAPI + HTMX)
+#   - prometheus (scrapes /metrics from dashboard)
+#   - otel-collector (optional — receives OTLP from every service)
+#
+# Quick start:
+#   cp deploy/compose/.env.example .env
+#   $EDITOR .env                     # set ANTHROPIC_API_KEY + passphrase
+#   docker compose -f deploy/compose/docker-compose.yml up -d
+#   docker compose -f deploy/compose/docker-compose.yml logs -f orchestrator
+#
+# Images are pulled from ghcr.io/SigmanexSec; pin the version in .env via
+# SAP_VERSION. Cosign verification recommended before first pull:
+#   cosign verify --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+#       --certificate-identity-regexp 'https://github.com/SigmanexSec/.*' \
+#       ghcr.io/sigmanexsec/sap-pentest-orchestrator:${SAP_VERSION}
+
+x-sap-common: &sap-common
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    SAP_STATE_DIR: /var/lib/sap
+    SAP_METRICS_ENABLED: "1"
+    SAP_AUDIT_ENCRYPT: "1"
+  read_only: true
+  tmpfs:
+    - /tmp:size=64M
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  volumes:
+    - sap-state:/var/lib/sap:Z
+
+services:
+  # ── Orchestrator (stdio-only; no HTTP port) ──────────────────────────
+  orchestrator:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-orchestrator:${SAP_VERSION:-v3.0.0}
+    container_name: sap-orchestrator
+    environment:
+      SAP_SERVICE: orchestrator
+      SAP_V3_TRACKING_V2: "${SAP_V3_TRACKING_V2:-0}"
+      SAP_AGENT_MODE: "${SAP_AGENT_MODE:-single}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-anthropic}"
+    depends_on:
+      - mcp-recon
+      - mcp-exploit
+      - mcp-blueteam
+      - mcp-parrot
+      - mcp-engagement
+      - mcp-osint
+
+  # ── MCP servers (one per category, ports 9001-9006) ──────────────────
+  mcp-engagement:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-mcp-engagement:${SAP_VERSION:-v3.0.0}
+    container_name: sap-mcp-engagement
+    environment:
+      SAP_SERVICE: mcp-engagement
+    ports:
+      - "127.0.0.1:9001:9001"
+
+  mcp-recon:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-mcp-recon:${SAP_VERSION:-v3.0.0}
+    container_name: sap-mcp-recon
+    environment:
+      SAP_SERVICE: mcp-recon
+    ports:
+      - "127.0.0.1:9002:9002"
+
+  mcp-exploit:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-mcp-exploit:${SAP_VERSION:-v3.0.0}
+    container_name: sap-mcp-exploit
+    environment:
+      SAP_SERVICE: mcp-exploit
+    ports:
+      - "127.0.0.1:9003:9003"
+
+  mcp-blueteam:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-mcp-blueteam:${SAP_VERSION:-v3.0.0}
+    container_name: sap-mcp-blueteam
+    environment:
+      SAP_SERVICE: mcp-blueteam
+    ports:
+      - "127.0.0.1:9004:9004"
+
+  mcp-parrot:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-mcp-parrot:${SAP_VERSION:-v3.0.0}
+    container_name: sap-mcp-parrot
+    environment:
+      SAP_SERVICE: mcp-parrot
+    ports:
+      - "127.0.0.1:9005:9005"
+
+  mcp-osint:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-mcp-osint:${SAP_VERSION:-v3.0.0}
+    container_name: sap-mcp-osint
+    environment:
+      SAP_SERVICE: mcp-osint
+    ports:
+      - "127.0.0.1:9006:9006"
+
+  # ── Dashboard (FastAPI + HTMX) ───────────────────────────────────────
+  dashboard:
+    <<: *sap-common
+    image: ghcr.io/sigmanexsec/sap-pentest-dashboard:${SAP_VERSION:-v3.0.0}
+    container_name: sap-dashboard
+    environment:
+      SAP_SERVICE: dashboard
+    ports:
+      - "127.0.0.1:8765:8765"
+    depends_on:
+      - orchestrator
+
+  # ── Observability ────────────────────────────────────────────────────
+  prometheus:
+    image: docker.io/prom/prometheus:v2.55.0
+    container_name: sap-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.listen-address=0.0.0.0:9090"
+
+  otel-collector:
+    profiles: ["tracing"]
+    image: docker.io/otel/opentelemetry-collector-contrib:0.112.0
+    container_name: sap-otel
+    restart: unless-stopped
+    volumes:
+      - ./otel-collector.yml:/etc/otel-collector.yml:ro
+    command: ["--config=/etc/otel-collector.yml"]
+    ports:
+      - "127.0.0.1:4317:4317"    # OTLP/gRPC
+
+volumes:
+  sap-state:
+    driver: local
+  prom-data:
+    driver: local

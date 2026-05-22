@@ -13,6 +13,84 @@ This file mirrors that log in the standard format expected by GitHub.
 
 ## [Unreleased]
 
+### Added — v3.0 cycle (Cognitive Architecture)
+
+The v3.0 release reshapes SAP-Pentest from a single monolithic loop into
+a multi-agent platform with compliance-grade observability. Everything
+ships behind feature flags so deployments that worked in v2.3 keep
+working unchanged.
+
+- **Milestone A — Tracking compliance-grade** (gated by
+  `SAP_V3_TRACKING_V2`, default `0`). Eight new action types enter the
+  existing BLAKE2b hash chain: `llm_prompt_sent`,
+  `llm_response_received`, `llm_reasoning`, `agent_step`, `role_handoff`,
+  `phase_transition`, `reflection_completed`, `state_transition`. The
+  schema is versioned (`details["v"] = 1`). New
+  `core/audit_events.py` enumerates the catalog; new
+  `core/tracking/events.py` provides typed factories. The recorder
+  (`agent/tracking/recorder.py`) hooks into the orchestrator behind a
+  null-recorder fallback so v2.3 callers see zero behaviour change.
+  Sensitive payloads (raw prompt, raw response, reasoning, reflection)
+  are Fernet-wrapped at rest via
+  `core/tracking/encrypted_sink.py` — the key is derived from the
+  existing `CREDENTIAL_ENCRYPTION_PASSPHRASE` so no new operator config
+  is required. Prometheus counters / histograms / gauges in
+  `core/observability/metrics.py`, exposed on `/metrics`. OpenTelemetry
+  traces in `core/observability/tracing.py`, no-op unless
+  `SAP_OTEL_ENDPOINT` is set. Passive replay via `scripts/replay_run.py`
+  produces a Markdown + JSONL report per `run_id`. 12 acceptance tests
+  in `tests/test_v3_tracking.py`.
+- **Milestone B — SOLID refactor**. The provider Strategy lives in
+  `agent/providers/` (Protocol in `base.py`, neutral types in
+  `types.py`, `anthropic_provider.py` + `openai_provider.py`, factory
+  in `factory.py`). `agent/loop/agentic_loop.py` collapses the two
+  legacy `_run_anthropic` / `_run_openai` loops into a single
+  provider-neutral driver. A custom ~250 LOC dependency-injection
+  container lives in `core/di/container.py` (no external dep). The
+  fat 13-parameter `ToolExecutor.run` keeps its signature for backward
+  compatibility but gains a typed companion `ToolExecutor.run_request`
+  that takes a `core/executor_types.ToolCallRequest`. MCP servers
+  share a common bootstrap via `mcp_servers/base.py`. Budget guard
+  and fuzzy circuit-breaker move to standalone `agent/budget/*.py`
+  modules. 27 acceptance tests across
+  `test_v3_provider_parity.py`, `test_v3_di_container.py`, and
+  `test_v3_budget_breaker.py`.
+- **Milestone C — Multi-agent team** (gated by `SAP_AGENT_MODE`,
+  default `single`). Six role personas ship in `agent/roles/*.yaml`
+  with matching Markdown prompts in `agent/prompts/roles/`: Planner,
+  Reconnaissance Analyst, Exploit Developer, Post-Exploitation
+  Operator, Blue Team Observer, Reporter. The role catalog is
+  community-editable — see `docs/CONTRIBUTING_ROLES.md` for the
+  contribution flow. A new chokepoint `core/role_validator.py`
+  composes on top of `scope_validator` to enforce per-role tool /
+  phase / handoff policy via Pydantic-validated YAML at startup.
+  The explicit state machine in `agent/state/machine.py` codifies the
+  ReAct cycle (`idle → planning → acting → observing → reflecting →
+  handing_off → done|failed`). `agent/coordinator.py` schedules
+  role-to-role work for one engagement via
+  `agent/coordination/handoff.py:AgentContext`. 35 acceptance tests
+  across `test_v3_role_validator.py`, `test_v3_state_machine.py`,
+  `test_v3_multi_agent_e2e.py`. Migration walkthrough in
+  `docs/migration_v2.3_to_v3.0.md`.
+- **Milestone D — Distribution**. New parametrized OCI image at
+  `deploy/podman/Containerfile.service` builds the orchestrator and
+  all six MCP server images from a single Containerfile via
+  `--build-arg SAP_SERVICE=...`. New
+  `deploy/compose/docker-compose.yml` brings up the whole stack
+  locally (orchestrator + 6 MCP + dashboard + Prometheus + optional
+  OTel collector). Example `.env`, Prometheus scrape config and OTel
+  collector config live alongside. Helm chart is deferred to v3.1 to
+  keep the v3.0 maintenance surface tight.
+
+### Identity hygiene (v3.0 P0 fix)
+
+- Replaced personal email in `pyproject.toml` `authors` and
+  `docs/THREAT_MODEL.md` maintainer block with the public alias
+  `rootedlab-code <rootedlab@proton.me>`. Repo-local git identity
+  switched to the same alias. The personal email
+  (`adriansebastianmartin@gmail.com`) is no longer present in any
+  tracked file.
+
 ### Added — v2.3 cycle (Security Hardening)
 - **OS-level sandbox** for every tool execution. New `core/sandbox.py`
   wraps `core/executor.ToolExecutor.run()` in a `bwrap` invocation

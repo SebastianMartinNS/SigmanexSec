@@ -1,0 +1,40 @@
+id: recon_analyst
+name: Reconnaissance Analyst
+persona_prompt_path: agent/prompts/roles/recon_analyst.md
+allowed_tools:
+  - nmap_scan
+  - masscan_scan
+  - dns_recon
+  - whatweb
+  - feroxbuster_scan
+  - ffuf_fuzz
+  - dirb_scan
+  - gobuster_scan
+  - nikto_scan
+  - wafw00f_check
+  - enum4linux
+  - snmp_check
+  - onesixtyone_scan
+  - search_archival_memory
+  - read_core_memory
+  - record_finding
+  - list_engagements
+  - get_engagement
+  - get_targets
+denied_tools:
+  - "*exploit*"
+  - "*sqlmap*"
+  - "*metasploit*"
+allowed_phases:
+  - reconnaissance
+  - scanning
+can_handoff_to:
+  - to: exploit_dev
+    when: when an exploitable surface is identified with high confidence
+  - to: planner
+    when: when recon reveals scope assumptions need to be revisited
+  - to: reporter
+    when: when the engagement is recon-only
+capability_guards:
+  requires_human_approval: false
+  max_tool_calls_per_step: 10

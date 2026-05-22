@@ -38,13 +38,21 @@ from core.models import (
 from core.session_store import SessionStore
 
 # ── Singletons ───────────────────────────────────────────────────────────────
-_db_path = os.environ.get("SESSION_DB_PATH", "./sessions/assessments.db")
-_log_path = os.environ.get("AUDIT_LOG_PATH", "./logs/audit.jsonl")
+# v3.1 W1.4 — Bootstrap via BaseMCPServer so every MCP server in the process
+# shares one ``AuditLog`` / ``SessionStore`` / ``ToolExecutor`` instance via
+# the DI container. The previous per-server inline construction caused the
+# BLAKE2b hash chain to fragment into one chain per server (forensic
+# integrity risk). ``BaseMCPServer.from_env`` preserves the legacy env-var
+# resolution (``SESSION_DB_PATH`` / ``AUDIT_LOG_PATH``) so existing on-disk
+# state is read unchanged. Engagement server keeps only the resource
+# handler (not the run-context tool) so the exposed MCP surface is
+# identical to v3.0.
+from mcp_servers.base import BaseMCPServer
 
-store = SessionStore(_db_path)
-audit = AuditLog(_log_path)
-
-mcp = FastMCP("pentest-engagement")
+_srv = BaseMCPServer.from_env(name="engagement")
+store = _srv.store
+audit = _srv.audit
+mcp = _srv.mcp
 from core.tool_output_store import get_tool_output_store
 from mcp_servers._response import register_resource_handlers
 

@@ -73,6 +73,48 @@ def tmp_paths(tmp_path, monkeypatch):
     }
 
 
+# ── v3.1 T2: environment-dependency markers ────────────────────────────────
+#
+# Hook called by pytest for every collected item; skips the item with a
+# clear reason when the marker's argument is not available. Centralised
+# here so test files only have to say::
+#
+#     @pytest.mark.requires_dep("structlog")
+#     def test_…(): ...
+#
+# instead of repeating ``importlib.util.find_spec`` shims everywhere.
+
+
+def _has_dep(name: str) -> bool:
+    import importlib.util
+    return importlib.util.find_spec(name) is not None
+
+
+def _has_binary(name: str) -> bool:
+    import shutil
+    return shutil.which(name) is not None
+
+
+def pytest_runtest_setup(item):
+    """Auto-skip when ``requires_dep`` / ``requires_binary`` / ``requires_network``
+    markers reference something that is not available in the current env."""
+    for marker in item.iter_markers(name="requires_dep"):
+        if not marker.args:
+            continue
+        dep = marker.args[0]
+        if not _has_dep(dep):
+            pytest.skip(f"requires Python package not installed: {dep!r}")
+    for marker in item.iter_markers(name="requires_binary"):
+        if not marker.args:
+            continue
+        binary = marker.args[0]
+        if not _has_binary(binary):
+            pytest.skip(f"requires CLI binary on PATH: {binary!r}")
+    for _marker in item.iter_markers(name="requires_network"):
+        if os.environ.get("SAP_TEST_OFFLINE", "0") not in ("", "0", "false", "False"):
+            pytest.skip("requires network (SAP_TEST_OFFLINE=1)")
+
+
 @pytest.fixture()
 def engagement_id() -> str:
     return f"eng_{uuid.uuid4().hex[:8]}"

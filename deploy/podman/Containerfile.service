@@ -1,0 +1,109 @@
+# deploy/podman/Containerfile.service — parametrized OCI image for SAP-Pentest v3.0.
+#
+# A single multi-stage Containerfile builds **every** non-dashboard service
+# of the platform (orchestrator + 6 MCP servers). The target is selected
+# via the ``SAP_SERVICE`` build arg, which decides the ``CMD`` of the
+# resulting image. The build stage is shared across services so the cache
+# layers in the registry are minimal.
+#
+# Build:
+#     podman build \
+#         --build-arg SAP_SERVICE=orchestrator \
+#         -t ghcr.io/sigmanexsec/sap-pentest-orchestrator:v3.0.0 \
+#         -f deploy/podman/Containerfile.service .
+#
+#     for s in recon exploit blueteam parrot engagement osint; do
+#         podman build \
+#             --build-arg SAP_SERVICE=mcp-$s \
+#             -t ghcr.io/sigmanexsec/sap-pentest-mcp-$s:v3.0.0 \
+#             -f deploy/podman/Containerfile.service .
+#     done
+#
+# Run (orchestrator example):
+#     podman run --rm \
+#         --read-only --tmpfs /tmp \
+#         --cap-drop=ALL --security-opt no-new-privileges \
+#         -e LLM_PROVIDER=anthropic \
+#         -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+#         -v sap-state:/var/lib/sap:Z \
+#         ghcr.io/sigmanexsec/sap-pentest-orchestrator:v3.0.0
+#
+# Image signing happens via ``cosign`` in ``.github/workflows/release.yml``;
+# the SHA-256 of every signed image lands in the release manifest so
+# operators can verify provenance before pulling.
+
+# ───────── Stage 1: shared build ─────────
+FROM docker.io/python:3.13-slim AS build
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential gcc libffi-dev libssl-dev pkg-config && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements.lock* ./
+RUN if [ -f requirements.lock ]; then \
+        pip install --require-hashes -r requirements.lock; \
+    else \
+        pip install -r requirements.txt; \
+    fi
+
+# ───────── Stage 2: runtime ─────────
+FROM docker.io/python:3.13-slim AS runtime
+
+ARG SAP_SERVICE
+RUN [ -n "$SAP_SERVICE" ] || (echo "SAP_SERVICE build arg required" >&2 && exit 1)
+
+# Non-root user identical to the systemd + dashboard installation so that
+# bind mounts shared with the dashboard image preserve ownership.
+RUN groupadd --system --gid 990 sap && \
+    useradd --system --uid 990 --gid 990 \
+        --home-dir /var/lib/sap --shell /usr/sbin/nologin sap
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates tini && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /usr/local/lib/python3.13/site-packages \
+                  /usr/local/lib/python3.13/site-packages
+COPY --from=build /usr/local/bin /usr/local/bin
+
+WORKDIR /opt/sap
+COPY --chown=root:root . /opt/sap
+RUN find /opt/sap -type d -exec chmod 0755 {} + && \
+    find /opt/sap -type f -exec chmod 0644 {} + && \
+    chmod 0755 /opt/sap/cli.py /opt/sap/mcp_http_runner.py && \
+    install -d -o sap -g sap -m 0700 /var/lib/sap /var/log/sap /run/sap
+
+# Bake the service id into the image so dashboards / kubectl get pods can
+# show it. Used as the prefix for syslog tags and the ``service.name``
+# OpenTelemetry attribute.
+ENV SAP_SERVICE=${SAP_SERVICE} \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    SAP_STATE_DIR=/var/lib/sap \
+    XDG_STATE_HOME=/var/lib/sap \
+    XDG_CONFIG_HOME=/etc/sap \
+    SAP_MLOCK_ALL=1
+
+USER sap:sap
+
+# Per-service port + entrypoint mapping. The MCP runner takes the server
+# name on its CLI; the orchestrator runs ``cli.py run`` and exposes only
+# stdio to whoever invokes it.
+#
+# Ports follow the v2.3 convention (project_overview): 9001..9006 for the
+# MCP servers, in alphabetical order of their canonical name.
+EXPOSE 9001 9002 9003 9004 9005 9006
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import sys, os; sys.exit(0 if os.environ.get('SAP_SERVICE') else 1)"
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+# The default CMD is overridden by the service-specific wrapper script
+# at /opt/sap/deploy/podman/launch.sh. Keeping the dispatch in shell
+# rather than ENV avoids needing a separate Containerfile per service.
+CMD ["sh", "-c", "/opt/sap/deploy/podman/launch.sh \"$SAP_SERVICE\""]

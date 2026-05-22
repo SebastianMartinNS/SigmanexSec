@@ -60,17 +60,15 @@ from mcp_servers._response import (
 )
 
 # ── Singletons ───────────────────────────────────────────────────────────────
+# v3.1 W1.4 — shared AuditLog/SessionStore/ToolExecutor via DI container.
+from mcp_servers.base import BaseMCPServer
 
-_db_path  = os.environ.get("SESSION_DB_PATH", "./sessions/assessments.db")
-_log_path = os.environ.get("AUDIT_LOG_PATH",  "./logs/audit.jsonl")
-
-store = SessionStore(_db_path)
-audit = AuditLog(_log_path)
-_exe  = ToolExecutor(audit_log=audit)
-
-mcp = FastMCP("pentest-parrot")
-register_resource_handlers(mcp, get_tool_output_store, server_suffix="parrot")
-register_run_context_tool(mcp, _exe, server_suffix="parrot")
+_srv  = BaseMCPServer.from_env(name="parrot")
+store = _srv.store
+audit = _srv.audit
+_exe  = _srv.executor
+mcp   = _srv.mcp
+_srv.install_default_handlers()
 
 # Per-engagement lock around `_exe._scope` mutation. Prevents the documented
 # race when concurrent MCP HTTP calls target the same shared executor.
