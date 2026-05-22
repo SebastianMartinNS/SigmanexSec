@@ -120,6 +120,58 @@ def engagement_id() -> str:
     return f"eng_{uuid.uuid4().hex[:8]}"
 
 
+# ── v3.1 T4: singleton-isolation factory fixtures ──────────────────────────
+#
+# The legacy ``tmp_paths`` fixture rebinds module-level singletons on a
+# best-effort basis; tests that hit the ``ToolOutputStore`` or the
+# ``current_container()`` DI registry needed to copy the same five-line
+# reset blocks across files. These fixtures centralise the pattern.
+
+
+@pytest.fixture()
+def isolated_tool_output_store(tmp_paths):
+    """Reset the process-wide ``ToolOutputStore`` singleton around the test.
+
+    Use when the test exercises ``core.executor.ToolExecutor`` output
+    persistence and does not want a previous test's cached store
+    pointing at a stale (now-deleted) temp dir.
+    """
+    from core.tool_output_store import reset_tool_output_store
+    reset_tool_output_store()
+    yield
+    reset_tool_output_store()
+
+
+@pytest.fixture()
+def isolated_audit_chain(tmp_paths):
+    """Bind a fresh DI container scoped to this test and yield a brand
+    new ``AuditLog`` writing into ``tmp_paths``.
+
+    The container is restored to an empty default at teardown so any
+    subsequent test that imports an MCP server module rebuilds its own
+    singletons against its own ``tmp_paths``.
+    """
+    from core.audit_log import AuditLog
+    from core.di import ServiceContainer, set_current_container
+
+    container = ServiceContainer()
+    audit = AuditLog(os.environ["AUDIT_LOG_PATH"])
+    container.register_instance(AuditLog, audit)
+    set_current_container(container)
+    try:
+        yield audit
+    finally:
+        # Restore the default empty container so the next test starts
+        # clean. Do not propagate exceptions — teardown must not mask
+        # the test's own assertion failure.
+        try:
+            import asyncio as _asyncio
+            _asyncio.run(audit.close())
+        except Exception:
+            pass
+        set_current_container(ServiceContainer())
+
+
 @pytest.fixture()
 def lab_cidr() -> str:
     cidr = os.environ.get("PENTEST_LAB_CIDR", "")

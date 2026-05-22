@@ -146,6 +146,19 @@ def _strip_thinking(text: str) -> tuple[str, str]:
     return visible, "\n".join(thinking_parts).strip()
 
 
+def _provider_abstract_enabled() -> bool:
+    """``SAP_V3_PROVIDER_ABSTRACT`` master switch.
+
+    Default OFF in v3.1.0 so the 530-strong legacy test suite stays
+    green and operators upgrading from v2.3 see no behavioural change.
+    Planned default ON in v3.2 after the 90-day soak; the legacy
+    ``_run_anthropic`` / ``_run_openai`` paths are deprecated then.
+    """
+    return os.environ.get("SAP_V3_PROVIDER_ABSTRACT", "0") not in (
+        "", "0", "false", "False",
+    )
+
+
 # ── System prompt ─────────────────────────────────────────────────────────────
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 _SYSTEM_PROMPT_PATH = PROMPTS_DIR / "system_prompt.md"
@@ -806,7 +819,16 @@ class Orchestrator:
             f"then follow the PTES methodology."
         )
 
-        if _PROVIDER == "anthropic":
+        # v3.1 W1.1+W1.2 — When the flag is on, drive the run through the
+        # unified ``AgenticLoop`` (Milestone B2) and emit cognitive-tracking
+        # events into the BLAKE2b chain (Milestone A3 hooks). Default OFF in
+        # v3.1; planned default ON in v3.2 after the 90-day soak (see
+        # docs/migration_v2.3_to_v3.0.md). The legacy ``_run_anthropic`` /
+        # ``_run_openai`` paths are the safety net for that window.
+        if _provider_abstract_enabled():
+            self._rebind_tracking(engagement_id)
+            final = await self._run_via_agentic_loop(user_message, max_iterations)
+        elif _PROVIDER == "anthropic":
             final = await self._run_anthropic(user_message, max_iterations)
         elif _PROVIDER in ("openai", "local"):
             final = await self._run_openai(user_message, max_iterations)
@@ -827,6 +849,125 @@ class Orchestrator:
                 self._on_message("error", f"failed to save plan: {e}")
 
         return final
+
+    # ── v3.1 unified driver (W1.1 + W1.2) ──────────────────────────────────────
+
+    async def _run_via_agentic_loop(self, user_message: str, max_iter: int) -> str:
+        """Drive the run through :class:`AgenticLoop` instead of the two
+        provider-specific ``_run_anthropic`` / ``_run_openai`` loops.
+
+        Composes existing helpers (``self._compose_system``,
+        ``self._prompt_budget_guard``, ``self._dispatch_tool``,
+        ``self._fuzzy_signature``) inside a small dispatcher + pre-call
+        hook so the legacy semantics are preserved when the
+        ``SAP_V3_PROVIDER_ABSTRACT`` flag flips. Audit events
+        (``llm_prompt_sent`` / ``llm_response_received`` / ``agent_step``)
+        emitted by :class:`AgentStepRecorder` via the loop's recorder hooks
+        — they are no-op when ``SAP_V3_TRACKING_V2`` is OFF.
+
+        The compaction layer (``self._maybe_compact``) is **intentionally
+        not** wired here in v3.1 because the memory manager speaks
+        provider-native message shapes; running it would require an extra
+        ChatMessage<->dict round-trip per iteration. Long runs that need
+        compaction continue to ride the legacy path; the consolidation
+        plan tracks the bridging work for v3.2 (see
+        ``~/.claude/plans/aloora-ho-notato-che-dazzling-fountain.md``
+        §W1.1).
+        """
+        from agent.loop import AgenticLoop, LoopContext
+        from agent.providers.types import ChatMessage, ParsedToolCall, Role, ToolSpec
+
+        if self._provider is None:                              # pragma: no cover
+            init_err = getattr(self, "_provider_init_error", None)
+            raise RuntimeError(
+                "SAP_V3_PROVIDER_ABSTRACT=1 but provider construction failed"
+                + (f": {init_err!r}" if init_err else "")
+            )
+
+        base_system = "\n\n".join(
+            s for s in (SYSTEM_PROMPT, _mode_prompt(self._mode)) if s
+        )
+
+        # Map the registry's raw tool dicts (the canonical schema MCP
+        # servers ship to it) to the provider-neutral ToolSpec list the
+        # AgenticLoop hands to ``provider.normalize_tools()``.
+        tools: list[ToolSpec] = [
+            ToolSpec(
+                name=t["name"],
+                description=t.get("description", "") or "",
+                parameters=t.get("input_schema") or {"type": "object", "properties": {}},
+            )
+            for t in self._registry._tools
+        ]
+
+        if _MEMORY_ENABLED and self._memory is not None:
+            await self._memory.record("user", user_message)
+
+        async def _pre_call_hook(ctx: LoopContext) -> bool:
+            """Refresh the system header from memory + enforce the
+            pre-flight prompt-token budget. Mirrors the first ten lines
+            of each legacy loop."""
+            try:
+                ctx.system = await self._compose_system(base_system)
+            except Exception as exc:
+                self._on_message("error", f"compose_system failed: {exc!r}")
+            # The budget guard accepts an OpenAI-style message list with
+            # the system header inlined. Build a temporary view (do not
+            # mutate ctx.messages) only to count tokens; pruning the
+            # neutral ChatMessage list happens in v3.2 once the bridge
+            # lands. Today we only emit the soft-budget event so dashboards
+            # show the curve.
+            try:
+                oai_view = [{"role": "system", "content": ctx.system}]
+                for m in ctx.messages:
+                    if m.raw and isinstance(m.raw, dict) and "role" in m.raw:
+                        oai_view.append(m.raw)
+                    elif m.role == Role.TOOL:
+                        oai_view.append({
+                            "role": "tool",
+                            "tool_call_id": m.tool_call_id,
+                            "content": m.content,
+                        })
+                    else:
+                        oai_view.append({"role": str(m.role), "content": m.content})
+                self._prompt_budget_guard(
+                    oai_view, iteration=ctx.iteration,
+                )
+            except Exception as exc:
+                self._on_message("error", f"budget guard failed: {exc!r}")
+            return True
+
+        async def _dispatcher(tc: ParsedToolCall) -> str:
+            # Reuses the legacy ``_dispatch_tool`` so STEP-mode approval,
+            # PLANNING-mode short-circuit, and builtin memory routing all
+            # continue to apply exactly as in the v2.3 loop. The audit
+            # event is emitted by the loop's recorder hooks before /
+            # after this returns.
+            return await self._dispatch_tool(tc.name, tc.args, tc.id)
+
+        loop = AgenticLoop(
+            provider=self._provider,
+            dispatcher=_dispatcher,
+            recorder=self._tracking,           # W1.2 — events auto-emitted
+            pre_call_hook=_pre_call_hook,
+            on_message=self._on_message,
+            request_timeout=_LLM_REQUEST_TIMEOUT,
+            sanitize_for_audit=sanitize_tool_output,
+        )
+
+        ctx = LoopContext(
+            run_id=self._run_id,
+            engagement_id=self._engagement_id or "-",
+            role="legacy_monolithic",          # multi-agent ships in v3.2
+            system=base_system,                # pre_call_hook will refresh
+            messages=[ChatMessage(role=Role.USER, content=user_message)],
+            tools=tools,
+            max_iterations=max_iter,
+            repetition_limit=_TOOL_LOOP_LIMIT,
+            capabilities_overrides={"model": _MODEL},
+        )
+
+        return await loop.run(ctx)
 
     # ── Anthropic loop ─────────────────────────────────────────────────────────
 

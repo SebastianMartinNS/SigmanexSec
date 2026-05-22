@@ -86,15 +86,51 @@ class AgenticLoop:
     # ------------------------------------------------------------------
 
     async def run(self, ctx: LoopContext) -> str:
-        """Drive the loop until DONE or ABORTED. Returns the final text."""
+        """Drive the loop until DONE or ABORTED. Returns the final text.
+
+        v3.1 W1.2 — Every iteration is wrapped in
+        :meth:`AgentStepRecorder.begin_step` / :meth:`end_step` so the
+        BLAKE2b audit chain captures one ``agent_step`` record per ReAct
+        cycle. When the recorder is ``_NullRecorder`` (default flag OFF)
+        the wrapping calls degrade to no-ops and there is no
+        behavioural change for the legacy single-agent path.
+        """
         for i in range(ctx.max_iterations):
             ctx.iteration = i
             self._on_message("iteration", str(i + 1))
+            if self._recorder is not None:
+                try:
+                    await self._recorder.begin_step(
+                        iteration=i, phase=ctx.phase,
+                        state_before={"messages_count": len(ctx.messages)},
+                    )
+                except Exception:                       # pragma: no cover
+                    pass
             if self._pre_call_hook is not None:
                 proceed = await self._pre_call_hook(ctx)
                 if not proceed:
+                    if self._recorder is not None:
+                        try:
+                            await self._recorder.end_step(
+                                state_after={"reason": "pre_call_hook_abort"},
+                                error="pre_call_hook returned False",
+                            )
+                        except Exception:               # pragma: no cover
+                            pass
                     return ctx.final_text
             res = await self.run_iteration(ctx)
+            if self._recorder is not None:
+                try:
+                    await self._recorder.end_step(
+                        state_after={
+                            "outcome": res.outcome.value,
+                            "messages_count": len(ctx.messages),
+                            "final_text_len": len(ctx.final_text),
+                        },
+                        error=res.reason if res.outcome is IterationOutcome.ABORTED else "",
+                    )
+                except Exception:                       # pragma: no cover
+                    pass
             if res.outcome is IterationOutcome.DONE:
                 ctx.final_text = res.text or ctx.final_text
                 return ctx.final_text

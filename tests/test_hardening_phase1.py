@@ -161,8 +161,9 @@ async def test_audit_log_rotates_at_size_cap(tmp_path, monkeypatch):
             target="t",
             details={"i": i, "filler": "x" * 64},
         ))
-    # Let the writer flush so the file exists on disk.
-    await asyncio.sleep(0.6)
+    # Let the writer flush so the file exists on disk. v3.1 T3 — use the
+    # deterministic ``flush()`` API instead of polling on a sleep timer.
+    await al.flush()
     # Second batch — the writer's rotate-before-append must move the
     # existing >2 KB file aside.
     for i in range(60, 120):
@@ -172,7 +173,7 @@ async def test_audit_log_rotates_at_size_cap(tmp_path, monkeypatch):
             target="t",
             details={"i": i, "filler": "x" * 64},
         ))
-    await asyncio.sleep(0.6)
+    await al.flush()
     await al.close()
 
     # An archive file ``audit.jsonl.1`` must exist alongside the live log.
