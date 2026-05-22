@@ -293,6 +293,8 @@ module = [
     "argon2.*",
     "saml2.*",
     "authlib.*",
+    "structlog",
+    "structlog.*",
 ]
 ignore_missing_imports = true
 

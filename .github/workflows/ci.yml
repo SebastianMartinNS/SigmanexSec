@@ -83,12 +83,17 @@ jobs:
         run: |
           pip install --require-hashes -r requirements.lock
           pip install 'mypy>=1.11.0' types-PyYAML types-aiofiles types-pexpect
-      - name: mypy strict (chokepoints only)
+      - name: mypy strict (chokepoints + ratchet)
         # ``--follow-imports=silent`` restricts the strict gate to the
-        # four chokepoint files themselves; errors in transitive
-        # dependencies (parrot_catalog, sudo_broker, tool_output_store,
-        # …) keep ratcheting through the informational ``typecheck``
-        # job above and do not block the chokepoint contract.
+        # files explicitly listed below; errors in transitive
+        # dependencies the ratchet has not yet reached keep flowing
+        # through the informational ``typecheck`` job and do not block
+        # the chokepoint contract.
+        #
+        # v3.1.0-rc1 sealed the four primary chokepoints.
+        # v3.1.0-rc2 extends the gate to the six secondary modules
+        # (Q1 step 2): approval_gate (chokepoint), sudo_vault,
+        # sudo_broker, tool_output_store, parrot_catalog, logging.
         run: |
           mypy --config-file pyproject.toml \
             --follow-imports=silent \
@@ -96,7 +101,13 @@ jobs:
             core/scope_validator.py \
             core/audit_log.py \
             core/executor.py \
-            core/role_validator.py
+            core/role_validator.py \
+            core/approval_gate.py \
+            core/sudo_vault.py \
+            core/sudo_broker.py \
+            core/tool_output_store.py \
+            core/parrot_catalog.py \
+            core/logging.py
 
   # ── Security static analysis ─────────────────────────────────────────────
   security-bandit:
@@ -207,10 +218,10 @@ jobs:
         run: pip-audit --strict --requirement requirements.lock --ignore-vuln PYSEC-2026-161
 
   # ── Test suite ───────────────────────────────────────────────────────────
-  # Full pytest with coverage. The coverage gate is set to 0 initially so a
-  # green build is achievable on day one; raise --cov-fail-under each
-  # release as workstream 1.4 (property tests) and follow-up tests close
-  # the gap. v2.2 release criterion: 75% global, 85% on core/.
+  # Full pytest with coverage. v3.1.0-rc2 activates the global gate at
+  # 60 % (baseline ≈ 68 %); regression below the threshold blocks merge.
+  # Per-package gates (75 % core/, 50 % agent/) follow in v3.2 once the
+  # mypy ratchet finishes the remaining transitive modules.
   pytest:
     name: pytest (full suite + coverage)
     runs-on: ubuntu-latest
@@ -232,7 +243,7 @@ jobs:
           pytest tests/ -v \
             --cov=core --cov=mcp_servers --cov=agent --cov=sap_dashboard \
             --cov-report=xml --cov-report=term \
-            --cov-fail-under=0 \
+            --cov-fail-under=60 \
             --junitxml=pytest-results.xml
       - name: Upload coverage
         if: always()

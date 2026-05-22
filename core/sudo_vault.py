@@ -23,6 +23,10 @@ import ctypes.util
 import os
 import time
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from core.sudo_broker import BrokerVaultProxy
 
 # ─────────────────────────────────────────────
 # mlock helpers (Linux/macOS); silent no-op elsewhere.
@@ -45,7 +49,8 @@ def _mlock(buf: bytearray) -> bool:
     if _libc is None or not hasattr(_libc, "mlock") or len(buf) == 0:
         return False
     try:
-        return _libc.mlock(_buf_addr(buf), ctypes.c_size_t(len(buf))) == 0
+        rc = _libc.mlock(_buf_addr(buf), ctypes.c_size_t(len(buf)))
+        return bool(rc == 0)
     except Exception:  # pragma: no cover
         return False
 
@@ -143,7 +148,7 @@ class SudoVault:
         async with self._lock:
             return self._is_unlocked_locked()
 
-    async def status(self) -> dict:
+    async def status(self) -> dict[str, Any]:
         async with self._lock:
             unlocked = self._is_unlocked_locked()
             return {
@@ -234,17 +239,24 @@ _VAULT: SudoVault | None = None
 _PROXY = None
 
 
-def get_sudo_vault() -> SudoVault:
+def get_sudo_vault() -> SudoVault | BrokerVaultProxy:
     """
     Return either a local :class:`SudoVault` or a :class:`BrokerVaultProxy`
     when the broker is configured via ``SAP_SUDO_BROKER`` env var. The proxy
     is API-compatible with :class:`SudoVault` for the methods used by the
-    executor and the dashboard.
+    executor and the dashboard (duck-typed; the two classes do not share
+    a Protocol because the broker proxy ships independently in the broker
+    process and dragging :class:`SudoVault` into it would introduce a
+    circular import).
     """
     global _VAULT, _PROXY
     broker_path = os.environ.get("SAP_SUDO_BROKER")
     if broker_path and os.environ.get("SAP_SUDO_BROKER_PROCESS") != "1":
-        if _PROXY is None or getattr(_PROXY, "socket_path", None) != broker_path:
+        # mypy narrows _PROXY to None on first iteration of the if; in
+        # practice the module-level cache may already hold a proxy that
+        # points at a different socket (operator reconfigured at runtime),
+        # so the ``or getattr(...)`` arm is reachable across calls.
+        if _PROXY is None or getattr(_PROXY, "socket_path", None) != broker_path:  # type: ignore[unreachable]
             from core.sudo_broker import BrokerVaultProxy
             _PROXY = BrokerVaultProxy(broker_path)
         return _PROXY

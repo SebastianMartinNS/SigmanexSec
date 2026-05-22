@@ -143,8 +143,14 @@ class ApprovalGate:
 
 class AutoApproveGate(ApprovalGate):
     """Used in CLI execution mode when no human is available."""
-    async def request(self, reason, summary, details=None, gate_id=None,
-                      timeout_seconds=None):  # type: ignore[override]
+    async def request(
+        self,
+        reason: str,
+        summary: str,
+        details: dict[str, Any] | None = None,
+        gate_id: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> ApprovalDecision:
         return ApprovalDecision(
             gate_id=gate_id or f"g_{uuid.uuid4().hex[:8]}",
             action="allow", reason="auto-approved (non-interactive)",
@@ -154,8 +160,14 @@ class AutoApproveGate(ApprovalGate):
 
 class AutoDenyGate(ApprovalGate):
     """Used as a hard wall in tests."""
-    async def request(self, reason, summary, details=None, gate_id=None,
-                      timeout_seconds=None):  # type: ignore[override]
+    async def request(
+        self,
+        reason: str,
+        summary: str,
+        details: dict[str, Any] | None = None,
+        gate_id: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> ApprovalDecision:
         return ApprovalDecision(
             gate_id=gate_id or f"g_{uuid.uuid4().hex[:8]}",
             action="deny", reason="auto-denied", decided_by="auto",

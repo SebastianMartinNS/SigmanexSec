@@ -13,6 +13,40 @@ This file mirrors that log in the standard format expected by GitHub.
 
 ## [Unreleased]
 
+### Added — v3.1.0-rc2 (consolidation Week 5)
+
+The final release candidate before the 90-day soak window opens.
+Closes the typing ratchet across the security core and activates the
+60 % global coverage gate. No new features.
+
+- **Q1 step 2 — mypy --strict ratchet extended.** Six secondary
+  modules join the four primary chokepoints in the `typecheck-chokepoints`
+  CI gate (no `continue-on-error`): `core/approval_gate.py`,
+  `core/sudo_vault.py`, `core/sudo_broker.py`, `core/tool_output_store.py`,
+  `core/parrot_catalog.py`, `core/logging.py`. The strict CI gate now
+  covers ten modules in total. The transitive informational `typecheck`
+  job continues to ratchet the rest of `core/`, `agent/`,
+  `mcp_servers/` and `sap_dashboard/backend/`.
+- **Q2 — coverage gate activated.** `pytest --cov-fail-under=60` is
+  now blocking in CI. Baseline measured at 68 % on the v3 + legacy
+  suite combined; the gate keeps a 8-point headroom for future test
+  surface growth. Per-package gates (75 % `core/`, 50 % `agent/`)
+  follow in v3.2 after the mypy ratchet finishes the remaining
+  transitive modules.
+- **S1 — soak smoke harness.** New `scripts/soak_smoke.py` drives the
+  AgenticLoop with a deterministic scripted provider, records every
+  iteration on the BLAKE2b chain via `AgentStepRecorder`, takes
+  tracemalloc snapshots and writes a Markdown report to
+  `reports/soak_<run_id>.md`. The in-process smoke variant runs in
+  CI in seconds; operators wire the same script into a > 4 h soak
+  with `LLM_PROVIDER=anthropic` (or any other configured provider)
+  during the 90-day soak window.
+- **S4 — replay acceptance.** `tests/test_v3_w4_observability.py`
+  invokes `scripts/replay_run.py` as a subprocess over a recorded
+  audit chain and asserts the structured summary plus the .jsonl and
+  .md report files. Exit code 3 on unknown `run_id` is pinned by the
+  test.
+
 ### Added — v3.0 cycle (Cognitive Architecture)
 
 The v3.0 release reshapes SAP-Pentest from a single monolithic loop into

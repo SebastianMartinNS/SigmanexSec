@@ -38,7 +38,7 @@ _DEFAULT_PATH = Path(__file__).parent.parent / "parrot_tools.yaml"
 _CACHE: dict[str, Any] = {"path": None, "mtime": 0.0, "data": []}
 
 
-def load_catalog(path: str | Path | None = None, force: bool = False) -> list[dict]:
+def load_catalog(path: str | Path | None = None, force: bool = False) -> list[dict[str, Any]]:
     p = Path(path) if path else _DEFAULT_PATH
     if not p.exists():
         return []
@@ -58,7 +58,7 @@ def load_catalog(path: str | Path | None = None, force: bool = False) -> list[di
     return data
 
 
-def get_descriptor(name: str) -> dict | None:
+def get_descriptor(name: str) -> dict[str, Any] | None:
     for d in load_catalog():
         if d.get("name") == name:
             return d
@@ -84,9 +84,9 @@ def list_binaries() -> set[str]:
 # Validation (lightweight JSON-Schema subset)
 # ─────────────────────────────────────────────
 
-def _validate_args(descriptor: dict, args: dict) -> dict:
+def _validate_args(descriptor: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     schema = descriptor.get("args_schema") or {}
-    props: dict = schema.get("properties", {})
+    props: dict[str, Any] = schema.get("properties", {})
     required: list[str] = schema.get("required", [])
 
     # Reject unknown keys
@@ -96,7 +96,7 @@ def _validate_args(descriptor: dict, args: dict) -> dict:
             f"Tool '{descriptor['name']}': unknown arg keys: {sorted(unknown)}"
         )
 
-    out: dict = {}
+    out: dict[str, Any] = {}
     for key, spec in props.items():
         if key in args:
             val = args[key]
@@ -169,11 +169,11 @@ _VAR_RE = re.compile(r"\{\{(\w+)\}\}")
 _SHELL_META_RE = re.compile(r"[;&|`$<>\\\n\r]|\$\(|\$\{")
 
 
-def _render_one(tpl: str, ctx: dict) -> str | None:
+def _render_one(tpl: str, ctx: dict[str, Any]) -> str | None:
     """Render one template element. Returns None if a conditional segment
     drops the entire element (i.e. the element became empty)."""
     # Conditional segments
-    def _cond_sub(m: re.Match) -> str:
+    def _cond_sub(m: re.Match[str]) -> str:
         key = m.group(1)
         val = ctx.get(key)
         if val in (None, "", 0, False, []):
@@ -182,7 +182,7 @@ def _render_one(tpl: str, ctx: dict) -> str | None:
 
     s = _COND_RE.sub(_cond_sub, tpl)
     # Variable interpolation
-    def _var_sub(m: re.Match) -> str:
+    def _var_sub(m: re.Match[str]) -> str:
         key = m.group(1)
         if key not in ctx:
             return ""
@@ -195,7 +195,7 @@ def _render_one(tpl: str, ctx: dict) -> str | None:
     return s
 
 
-def render_argv(descriptor: dict, args: dict) -> tuple[list[str], dict]:
+def render_argv(descriptor: dict[str, Any], args: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
     """
     Validate args against schema and render the argv list.
     Returns (argv, normalized_args). Raises CatalogError on validation /
@@ -312,7 +312,7 @@ _CATEGORY_PROFILE_DEFAULTS: dict[str, str] = {
 }
 
 
-def response_profile_for(descriptor: dict) -> dict:
+def response_profile_for(descriptor: dict[str, Any]) -> dict[str, Any]:
     """Return ``{profile, head_bytes, tail_bytes}`` for a tool descriptor.
 
     Resolution order:
@@ -346,7 +346,7 @@ def binary_available(name_or_path: str) -> bool:
     return False
 
 
-def gap_report() -> dict:
+def gap_report() -> dict[str, Any]:
     """Compare the catalogue against installed binaries."""
     cat = load_catalog()
     available = []
@@ -370,7 +370,7 @@ def gap_report() -> dict:
 # Documentation rendering for the LLM
 # ─────────────────────────────────────────────
 
-def descriptor_doc(name_or_descriptor: str | dict) -> str:
+def descriptor_doc(name_or_descriptor: str | dict[str, Any]) -> str:
     """
     Render a Markdown documentation block for a tool descriptor.
     Includes optional fields (when/why/how_notes/references/examples/
@@ -419,8 +419,8 @@ def descriptor_doc(name_or_descriptor: str | dict) -> str:
         lines += ["## How (caveats & operational notes)", how, ""]
 
     schema = d.get("args_schema") or {}
-    props: dict = schema.get("properties", {})
-    required: list = schema.get("required", []) or []
+    props: dict[str, Any] = schema.get("properties", {})
+    required: list[str] = schema.get("required", []) or []
     if props:
         lines.append("## Parameters")
         for k, spec in props.items():

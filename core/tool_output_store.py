@@ -23,6 +23,7 @@ plaintext for easy inspection (`cat`, `less`, `grep`).
 from __future__ import annotations
 
 import asyncio
+import builtins
 import gzip
 import json
 import logging
@@ -227,7 +228,7 @@ class ToolOutputStore:
         )
 
         # meta.json sidecar (human-readable, in addition to SQLite).
-        meta = {
+        meta: dict[str, Any] = {
             "call_id": cid,
             "run_id": run_id,
             "engagement_id": engagement_id,
@@ -290,15 +291,15 @@ class ToolOutputStore:
             tool=tool,
             stdout_bytes=len(stdout),
             stderr_bytes=len(stderr),
-            stdout_path=meta["stdout_path"],
-            stderr_path=meta["stderr_path"],
-            artifacts_dir=meta["artifacts_dir"],
+            stdout_path=str(meta["stdout_path"]),
+            stderr_path=str(meta["stderr_path"]),
+            artifacts_dir=str(meta["artifacts_dir"]),
             stdout_compressed=stdout_compressed,
             stderr_compressed=stderr_compressed,
             truncated_in_memory=truncated_in_memory,
             returncode=returncode,
             duration_seconds=duration_seconds,
-            created_at=meta["created_at"],
+            created_at=str(meta["created_at"]),
         )
 
     def _write_blob(self, path: Path, data: bytes) -> tuple[Path, bool]:
@@ -449,7 +450,7 @@ class ToolOutputStore:
         return [self._row_to_ref(r) for r in rows]
 
     @staticmethod
-    def _row_to_ref(row) -> ToolOutputRef:
+    def _row_to_ref(row: aiosqlite.Row) -> ToolOutputRef:
         return ToolOutputRef(
             call_id=row["call_id"],
             run_id=row["run_id"],
@@ -472,7 +473,7 @@ class ToolOutputStore:
     # Artifacts
     # ------------------------------------------------------------------
 
-    def list_artifacts(self, ref: ToolOutputRef) -> list[Path]:
+    def list_artifacts(self, ref: ToolOutputRef) -> builtins.list[Path]:
         adir = self._sessions_root / ref.artifacts_dir
         if not adir.exists():
             return []

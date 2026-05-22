@@ -321,7 +321,10 @@ class ToolExecutor:
     ) -> None:
         self._audit = audit_log
         self._scope = scope_validator
-        self._vault: SudoVault = sudo_vault if sudo_vault is not None else get_sudo_vault()
+        # ``get_sudo_vault()`` may return either the local SudoVault or
+        # the broker-backed proxy, both API-compatible (see
+        # core/sudo_vault.py:239 docstring).
+        self._vault = sudo_vault if sudo_vault is not None else get_sudo_vault()
         self._gate = approval_gate
         self._run_id = run_id or os.environ.get("SAP_RUN_ID", "")
         # Defer store materialization until first use so test fixtures that

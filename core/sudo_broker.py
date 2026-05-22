@@ -243,15 +243,15 @@ class SudoBrokerServer:
             _pid, uid, _gid = struct.unpack("iII", data)
         except struct.error:
             return False
-        return uid == self._uid
+        return bool(uid == self._uid)
 
     @staticmethod
-    def _json_line(obj: dict) -> bytes:
+    def _json_line(obj: dict[str, Any]) -> bytes:
         return (json.dumps(obj, separators=(",", ":")) + "\n").encode("utf-8")
 
     # ── protocol dispatch ─────────────────────────────────────────────
 
-    async def _dispatch(self, req: dict) -> dict:
+    async def _dispatch(self, req: dict[str, Any]) -> dict[str, Any]:
         op = req.get("op")
         if op == "ping":
             return {"ok": True, "pid": os.getpid()}
@@ -331,7 +331,7 @@ class BrokerVaultProxy:
 
     # ── transport ─────────────────────────────────────────────────────
 
-    async def _call(self, op: str, **payload) -> dict:
+    async def _call(self, op: str, **payload: Any) -> dict[str, Any]:
         try:
             reader, writer = await asyncio.open_unix_connection(self.socket_path)
         except (FileNotFoundError, ConnectionRefusedError) as e:
@@ -342,7 +342,8 @@ class BrokerVaultProxy:
             line = await asyncio.wait_for(reader.readline(), timeout=10.0)
             if not line:
                 raise BrokerUnavailable("broker closed connection")
-            return json.loads(line.decode("utf-8"))
+            decoded: dict[str, Any] = json.loads(line.decode("utf-8"))
+            return decoded
         finally:
             with contextlib.suppress(Exception):
                 writer.close()
@@ -350,7 +351,7 @@ class BrokerVaultProxy:
 
     # ── SudoVault-compatible API ─────────────────────────────────────
 
-    async def status(self) -> dict:
+    async def status(self) -> dict[str, Any]:
         r = await self._call("status")
         # Drop the protocol "ok" key to match SudoVault.status() shape.
         return {k: v for k, v in r.items() if k != "ok"}
@@ -393,7 +394,7 @@ class BrokerVaultProxy:
     async def record_success(self) -> None:
         await self._call("record_success")
 
-    async def heartbeat(self) -> dict:
+    async def heartbeat(self) -> dict[str, Any]:
         r = await self._call("heartbeat")
         return {k: v for k, v in r.items() if k != "ok"}
 
@@ -403,7 +404,7 @@ class BrokerVaultProxy:
 # ─────────────────────────────────────────────
 
 def _install_signal_handlers(loop: asyncio.AbstractEventLoop, server: SudoBrokerServer) -> None:
-    async def _shutdown():
+    async def _shutdown() -> None:
         log.info("sudo broker shutting down")
         await server.stop()
         loop.stop()
