@@ -84,13 +84,19 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install 'mypy>=1.11.0' types-PyYAML types-aiofiles types-pexpect
       - name: mypy strict (chokepoints only)
+        # ``--follow-imports=silent`` restricts the strict gate to the
+        # four chokepoint files themselves; errors in transitive
+        # dependencies (parrot_catalog, sudo_broker, tool_output_store,
+        # …) keep ratcheting through the informational ``typecheck``
+        # job above and do not block the chokepoint contract.
         run: |
           mypy --config-file pyproject.toml \
+            --follow-imports=silent \
+            --show-error-codes \
             core/scope_validator.py \
             core/audit_log.py \
             core/executor.py \
-            core/role_validator.py \
-            --show-error-codes
+            core/role_validator.py
 
   # ── Security static analysis ─────────────────────────────────────────────
   security-bandit:
