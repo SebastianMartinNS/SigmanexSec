@@ -101,10 +101,10 @@ class EngagementCreate(BaseModel):
 
     @field_validator("scope_emails", mode="before")
     @classmethod
-    def _norm_emails(cls, v):
+    def _norm_emails(cls, v: Any) -> list[str]:
         if not v:
             return []
-        out = []
+        out: list[str] = []
         for raw in v:
             if not isinstance(raw, str):
                 continue
@@ -120,14 +120,14 @@ class EngagementCreate(BaseModel):
 
     @field_validator("scope_usernames", mode="before")
     @classmethod
-    def _norm_usernames(cls, v):
+    def _norm_usernames(cls, v: Any) -> list[str]:
         if not v:
             return []
         return [s.strip().lower() for s in v if isinstance(s, str) and s.strip()]
 
     @field_validator("scope_social_handles", mode="before")
     @classmethod
-    def _norm_handles(cls, v):
+    def _norm_handles(cls, v: Any) -> list[str]:
         if not v:
             return []
         return [
@@ -137,10 +137,10 @@ class EngagementCreate(BaseModel):
 
     @field_validator("scope_persons", mode="before")
     @classmethod
-    def _norm_persons(cls, v):
+    def _norm_persons(cls, v: Any) -> list[str]:
         if not v:
             return []
-        out = []
+        out: list[str] = []
         for raw in v:
             if not isinstance(raw, str):
                 continue
@@ -150,7 +150,7 @@ class EngagementCreate(BaseModel):
         return out
 
     @model_validator(mode="after")
-    def _warn_shared_authorization_ref(self):
+    def _warn_shared_authorization_ref(self) -> EngagementCreate:
         """Emit a stderr warning when infra and OSINT auth share the same
         reference — typically a misconfiguration that conflates two
         legally distinct authorizations. Non-blocking.

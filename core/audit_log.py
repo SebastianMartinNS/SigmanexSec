@@ -65,7 +65,7 @@ class AuditLog:
         # writer can compute the hash chain sequentially under a single
         # producer-consumer.
         self._queue: asyncio.Queue[AuditEntry] = asyncio.Queue(maxsize=_queue_max())
-        self._writer_task: asyncio.Task | None = None
+        self._writer_task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
         self._dropped = 0
         # Hash-chain head, persisted in a sidecar so restarts continue the
@@ -339,7 +339,7 @@ class AuditLog:
         return await asyncio.to_thread(_read)
 
 
-def verify_audit_chain(path: str | os.PathLike) -> tuple[bool, int, str]:
+def verify_audit_chain(path: str | os.PathLike[str]) -> tuple[bool, int, str]:
     """Re-walk an audit log and verify the BLAKE2b hash chain.
 
     Returns ``(ok, line_number, message)``:

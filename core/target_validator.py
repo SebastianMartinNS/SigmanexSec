@@ -142,7 +142,7 @@ def normalize_target(
     return NormalizedTarget(kind="domain", value=encoded, raw=raw)
 
 
-def safe_or_none(raw: str, **kw) -> NormalizedTarget | None:
+def safe_or_none(raw: str, **kw: bool) -> NormalizedTarget | None:
     try:
         return normalize_target(raw, **kw)
     except InvalidTarget:

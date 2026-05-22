@@ -234,7 +234,7 @@ _VAULT: SudoVault | None = None
 _PROXY = None
 
 
-def get_sudo_vault():
+def get_sudo_vault() -> SudoVault:
     """
     Return either a local :class:`SudoVault` or a :class:`BrokerVaultProxy`
     when the broker is configured via ``SAP_SUDO_BROKER`` env var. The proxy

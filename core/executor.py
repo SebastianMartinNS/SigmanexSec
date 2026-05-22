@@ -17,13 +17,17 @@ import os
 import re
 import shlex
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from core.approval_gate import ApprovalGate
+from core.audit_log import AuditLog
 from core.executor_types import ToolCallRequest
 from core.models import AuditEntry, ExecutionResult, Phase, ToolOutputRefModel
+from core.scope_validator import ScopeValidator
 from core.sudo_vault import SudoLocked, SudoVault, get_sudo_vault
 from core.time_utils import utcnow as _sap_utcnow
 from core.tool_output_store import ToolOutputStore, get_tool_output_store
@@ -32,9 +36,9 @@ from core.tool_output_store import ToolOutputStore, get_tool_output_store
 # Load config once at import time
 # ─────────────────────────────────────────────
 _CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
-_cfg: dict = {}
+_cfg: dict[str, Any] = {}
 
-def _load_config() -> dict:
+def _load_config() -> dict[str, Any]:
     global _cfg
     if not _cfg and _CONFIG_PATH.exists():
         with open(_CONFIG_PATH) as f:
@@ -62,7 +66,8 @@ def _allowed_tools() -> set[str]:
 
 def _blocked_patterns() -> list[str]:
     cfg = _load_config()
-    return cfg.get("executor", {}).get("blocked_arg_patterns", [])
+    raw = cfg.get("executor", {}).get("blocked_arg_patterns", [])
+    return list(raw)
 
 
 # Compile patterns once and cache. We compile lazily on first use so test
@@ -101,7 +106,7 @@ def compile_blocked_patterns(force: bool = False) -> list[tuple[str, re.Pattern[
 
 def _max_output() -> int:
     cfg = _load_config()
-    return cfg.get("executor", {}).get("max_output_bytes", 524288)
+    return int(cfg.get("executor", {}).get("max_output_bytes", 524288))
 
 
 def _stderr_max_output() -> int:
@@ -144,7 +149,7 @@ def _persist_outputs() -> bool:
 
 def _default_timeout() -> int:
     cfg = _load_config()
-    return cfg.get("executor", {}).get("default_timeout_seconds", 300)
+    return int(cfg.get("executor", {}).get("default_timeout_seconds", 300))
 
 
 def _privileged_tools() -> set[str]:
@@ -196,7 +201,7 @@ def _ping_needs_root(args: list[str]) -> bool:
     return False
 
 
-_ARG_AWARE_PRIVILEGE: dict[str, callable] = {
+_ARG_AWARE_PRIVILEGE: dict[str, Callable[[list[str]], bool]] = {
     "nmap": _nmap_needs_root,
     "hping3": _hping3_needs_root,
     "ping": _ping_needs_root,
@@ -215,12 +220,12 @@ def _needs_sudo(tool: str, args: list[str]) -> bool:
     if tool in _privileged_tools():
         return True
     pred = _ARG_AWARE_PRIVILEGE.get(tool)
-    if pred is not None:
-        try:
-            return bool(pred(args))
-        except Exception:
-            return False
-    return False
+    if pred is None:
+        return False
+    try:
+        return bool(pred(args))
+    except Exception:
+        return False
 
 
 def _sudo_enabled() -> bool:
@@ -306,17 +311,17 @@ class ToolExecutor:
 
     def __init__(
         self,
-        audit_log=None,         # core.audit_log.AuditLog instance
-        scope_validator=None,   # core.scope_validator.ScopeValidator instance
+        audit_log: AuditLog | None = None,
+        scope_validator: ScopeValidator | None = None,
         sudo_vault: SudoVault | None = None,
         approval_gate: ApprovalGate | None = None,
         *,
         run_id: str | None = None,
         output_store: ToolOutputStore | None = None,
-    ):
+    ) -> None:
         self._audit = audit_log
         self._scope = scope_validator
-        self._vault = sudo_vault if sudo_vault is not None else get_sudo_vault()
+        self._vault: SudoVault = sudo_vault if sudo_vault is not None else get_sudo_vault()
         self._gate = approval_gate
         self._run_id = run_id or os.environ.get("SAP_RUN_ID", "")
         # Defer store materialization until first use so test fixtures that
@@ -595,7 +600,7 @@ class ToolExecutor:
         # bypassed entirely (single-agent legacy mode).
         if req.role_id:
             try:
-                from core.role_validator import (  # type: ignore[import-not-found]
+                from core.role_validator import (
                     RoleValidator,
                     get_role_validator,
                 )

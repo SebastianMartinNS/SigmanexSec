@@ -343,9 +343,9 @@ class ScopeValidator:
         now = _time.monotonic()
         cached = self._domain_ip_cache.get(domain)
         if cached is not None:
-            ips, ts = cached
+            cached_ips, ts = cached
             if now - ts < _DNS_CACHE_TTL_S:
-                return ips
+                return cached_ips
 
         ips: set[str] = set()
 
@@ -355,10 +355,12 @@ class ScopeValidator:
                 infos = socket.getaddrinfo(domain, None, proto=socket.IPPROTO_TCP)
             except socket.gaierror:
                 return out
+            # getaddrinfo always populates a non-empty sockaddr tuple; the
+            # previous defensive ``if not sockaddr`` guard was unreachable
+            # in practice and tripped mypy --strict, so it has been removed
+            # rather than silenced with a type: ignore.
             for info in infos:
                 sockaddr = info[4]
-                if not sockaddr:
-                    continue
                 host = sockaddr[0]
                 try:
                     out.add(str(ipaddress.ip_address(host)))

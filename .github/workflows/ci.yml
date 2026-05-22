@@ -66,6 +66,32 @@ jobs:
             --no-error-summary \
             --show-error-codes
 
+  # ── Strict typing on security chokepoints (Q1, v3.1 W4) ──────────────────
+  # The five chokepoint modules MUST stay mypy --strict clean from v3.1
+  # onward — any regression here blocks merge. Other modules continue to
+  # ratchet via the informational ``typecheck`` job above.
+  typecheck-chokepoints:
+    name: Type check chokepoints (mypy --strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install runtime + mypy
+        run: |
+          pip install --require-hashes -r requirements.lock
+          pip install 'mypy>=1.11.0' types-PyYAML types-aiofiles types-pexpect
+      - name: mypy strict (chokepoints only)
+        run: |
+          mypy --config-file pyproject.toml \
+            core/scope_validator.py \
+            core/audit_log.py \
+            core/executor.py \
+            core/role_validator.py \
+            --show-error-codes
+
   # ── Security static analysis ─────────────────────────────────────────────
   security-bandit:
     name: Security (bandit)
